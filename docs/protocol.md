@@ -100,7 +100,9 @@ calls the shell, `bidirectional`) and the name of its parameter object.
 | `document/read` | client → server | content of an open document |
 | `document/save` | client → server | write an open document to disk |
 | `index/search` | client → server | search the workspace text index |
-| `index/symbols` | client → server | symbols of a document |
+| `index/symbols` | client → server | symbols of the current document buffer |
+| `syntax/highlights` | client → server | Julia highlighting tokens and parser diagnostics |
+| `syntax/folds` | client → server | foldable Julia source ranges and parser diagnostics |
 | `lsp/status` | client → server | state of the Julia language server |
 | `lsp/diagnostics` | server → client | publish diagnostics |
 | `console/open` | client → server | open a REPL session |
@@ -180,6 +182,29 @@ its snapshot. `document/save` writes the content of the document to disk and
 returns the version of the stored snapshot. The `document/didChange` and
 `document/didSave` notifications remain the way the shell announces an edit
 or a save that it performed itself.
+
+### Julia syntax surface
+
+The syntax methods accept a document URI and the current editor-buffer text.
+They are stateless requests, so parsing does not depend on a file having been
+saved to disk:
+
+* `index/symbols` returns nested document symbols for modules, types, functions,
+  macros, constants, variables and struct fields. Each symbol has a full
+  `range`, a name-only `selectionRange`, and optional child symbols.
+* `syntax/highlights` returns non-overlapping lexical tokens. Token categories
+  include identifiers, keywords, operators, numbers, comments, strings,
+  command literals, escapes and interpolation markers. For `$name` and
+  `$(expression)`, the dollar marker has the `interpolation` category and the
+  embedded Julia expression keeps its regular token categories.
+* `syntax/folds` returns multiline blocks, comments, strings and command
+  literals. Fold line numbers are zero-based and inclusive.
+
+All syntax ranges are half-open. Byte offsets and columns count UTF-8 bytes;
+line and column positions are zero-based, matching Tree-sitter coordinates.
+Malformed or incomplete source still produces syntax output plus diagnostics
+for error and missing nodes. The Go source types and method catalog are the
+source of truth for the payloads and their JSON Schema definitions.
 
 ## JSON Schema
 

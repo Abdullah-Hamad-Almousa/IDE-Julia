@@ -159,6 +159,18 @@ func buildSchema() schemaDocument {
 		"documentSaveResult":            schemaObject(documentSaveResultSchema),
 		"textSearchParams":              schemaObject(textSearchParamsSchema),
 		"textSearchResult":              schemaObject(textSearchResultSchema),
+		"syntaxPosition":                schemaObject(syntaxPositionSchema),
+		"syntaxRange":                   schemaObject(syntaxRangeSchema),
+		"syntaxToken":                   schemaObject(syntaxTokenSchema),
+		"syntaxDiagnostic":              schemaObject(syntaxDiagnosticSchema),
+		"documentSymbolsParams":         schemaObject(documentSymbolsParamsSchema),
+		"documentSymbolsResult":         schemaObject(documentSymbolsResultSchema),
+		"documentSymbol":                schemaObject(documentSymbolSchema),
+		"syntaxHighlightsParams":        schemaObject(syntaxHighlightsParamsSchema),
+		"syntaxHighlightsResult":        schemaObject(syntaxHighlightsResultSchema),
+		"syntaxFoldsParams":             schemaObject(syntaxFoldsParamsSchema),
+		"syntaxFoldsResult":             schemaObject(syntaxFoldsResultSchema),
+		"syntaxFoldRange":               schemaObject(syntaxFoldRangeSchema),
 		"juliaProjectInfo":              schemaObject(juliaProjectInfoSchema),
 		"juliaDependencyInfo":           schemaObject(juliaDependencyInfoSchema),
 		"juliaManifestInfo":             schemaObject(juliaManifestInfoSchema),
@@ -504,4 +516,110 @@ var (
 			"description": "True when the engine dropped further matches.",
 		},
 	}
+
+	syntaxPositionSchema = map[string]any{
+		"line":   map[string]any{"type": "integer", "description": "Zero-based line number."},
+		"column": map[string]any{"type": "integer", "description": "Zero-based UTF-8 byte column."},
+	}
+
+	syntaxRangeSchema = map[string]any{
+		"startByte": map[string]any{"type": "integer", "description": "Inclusive UTF-8 byte offset."},
+		"endByte":   map[string]any{"type": "integer", "description": "Exclusive UTF-8 byte offset."},
+		"start":     map[string]any{"$ref": "#/$defs/syntaxPosition"},
+		"end":       map[string]any{"$ref": "#/$defs/syntaxPosition"},
+	}
+
+	syntaxTokenSchema = map[string]any{
+		"kind": map[string]any{
+			"type": "string",
+			"enum": []string{
+				string(SyntaxTokenIdentifier), string(SyntaxTokenKeyword), string(SyntaxTokenOperator),
+				string(SyntaxTokenNumber), string(SyntaxTokenBoolean), string(SyntaxTokenString),
+				string(SyntaxTokenStringDelimiter), string(SyntaxTokenStringPrefix), string(SyntaxTokenStringEscape),
+				string(SyntaxTokenCommand), string(SyntaxTokenCharacter), string(SyntaxTokenComment),
+				string(SyntaxTokenInterpolation), string(SyntaxTokenMacro), string(SyntaxTokenPunctuation),
+				string(SyntaxTokenError),
+			},
+			"description": "Stable editor-neutral syntax token category.",
+		},
+		"text":  requiredString("Source text covered by the token."),
+		"range": map[string]any{"$ref": "#/$defs/syntaxRange"},
+	}
+
+	syntaxDiagnosticSchema = map[string]any{
+		"message": requiredString("Short syntax recovery message."),
+		"range":   map[string]any{"$ref": "#/$defs/syntaxRange"},
+	}
+
+	documentSymbolsParamsSchema = map[string]any{
+		"uri":  requiredString("Document URI."),
+		"text": requiredString("Current document text."),
+	}
+
+	documentSymbolSchema = map[string]any{
+		"name": requiredString("Declaration name."),
+		"kind": map[string]any{
+			"type": "string",
+			"enum": []string{
+				string(DocumentSymbolModule), string(DocumentSymbolStruct), string(DocumentSymbolType),
+				string(DocumentSymbolFunction), string(DocumentSymbolMacro), string(DocumentSymbolConstant),
+				string(DocumentSymbolVariable), string(DocumentSymbolField),
+			},
+			"description": "Julia declaration category.",
+		},
+		"range":          map[string]any{"$ref": "#/$defs/syntaxRange"},
+		"selectionRange": map[string]any{"$ref": "#/$defs/syntaxRange"},
+		"children": map[string]any{
+			"type":  "array",
+			"items": map[string]any{"$ref": "#/$defs/documentSymbol"},
+		},
+	}
+
+	documentSymbolsResultSchema = map[string]any{
+		"uri": requiredString("Document URI."),
+		"symbols": map[string]any{
+			"type":  "array",
+			"items": map[string]any{"$ref": "#/$defs/documentSymbol"},
+		},
+		"diagnostics": schemaArrayRef("syntaxDiagnostic"),
+	}
+
+	syntaxHighlightsParamsSchema = map[string]any{
+		"uri":  requiredString("Document URI."),
+		"text": requiredString("Current document text."),
+	}
+
+	syntaxHighlightsResultSchema = map[string]any{
+		"uri":         requiredString("Document URI."),
+		"tokens":      schemaArrayRef("syntaxToken"),
+		"diagnostics": schemaArrayRef("syntaxDiagnostic"),
+	}
+
+	syntaxFoldsParamsSchema = map[string]any{
+		"uri":  requiredString("Document URI."),
+		"text": requiredString("Current document text."),
+	}
+
+	syntaxFoldRangeSchema = map[string]any{
+		"kind": map[string]any{
+			"type": "string",
+			"enum": []string{string(SyntaxFoldBlock), string(SyntaxFoldComment), string(SyntaxFoldString)},
+		},
+		"startLine": map[string]any{"type": "integer", "description": "Zero-based inclusive start line."},
+		"endLine":   map[string]any{"type": "integer", "description": "Zero-based inclusive end line."},
+		"range":     map[string]any{"$ref": "#/$defs/syntaxRange"},
+	}
+
+	syntaxFoldsResultSchema = map[string]any{
+		"uri":         requiredString("Document URI."),
+		"folds":       schemaArrayRef("syntaxFoldRange"),
+		"diagnostics": schemaArrayRef("syntaxDiagnostic"),
+	}
 )
+
+func schemaArrayRef(definition string) map[string]any {
+	return map[string]any{
+		"type":  "array",
+		"items": map[string]any{"$ref": "#/$defs/" + definition},
+	}
+}

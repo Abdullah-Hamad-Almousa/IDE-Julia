@@ -75,6 +75,11 @@ const (
 	// MethodIndexSymbols returns the symbols of a document.
 	MethodIndexSymbols Method = "index/symbols"
 
+	// MethodSyntaxHighlights returns lexer-level Julia highlighting tokens.
+	MethodSyntaxHighlights Method = "syntax/highlights"
+	// MethodSyntaxFolds returns the foldable ranges of a Julia document.
+	MethodSyntaxFolds Method = "syntax/folds"
+
 	// MethodLSPStatus reports the state of the Julia language server.
 	MethodLSPStatus Method = "lsp/status"
 	// MethodLSPDiagnostics publishes diagnostics for a document.
@@ -188,6 +193,18 @@ var methodCatalog = []MethodInfo{
 		Direction: DirectionClientToServer,
 		Summary:   "Return the symbols of a document.",
 		Params:    "documentSymbolsParams",
+	},
+	{
+		Name:      MethodSyntaxHighlights,
+		Direction: DirectionClientToServer,
+		Summary:   "Return lexer-level Julia highlighting tokens and syntax diagnostics.",
+		Params:    "syntaxHighlightsParams",
+	},
+	{
+		Name:      MethodSyntaxFolds,
+		Direction: DirectionClientToServer,
+		Summary:   "Return foldable Julia source ranges and syntax diagnostics.",
+		Params:    "syntaxFoldsParams",
 	},
 	{
 		Name:      MethodLSPStatus,

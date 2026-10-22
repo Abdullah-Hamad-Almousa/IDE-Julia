@@ -8,6 +8,21 @@ Format: one section per work package, newest first within a milestone.
 
 ---
 
+## M1 WP2 — Julia syntax
+
+### Syntax RPC methods are not served by the daemon yet
+
+* **What is missing.** The protocol defines `index/symbols`,
+  `syntax/highlights` and `syntax/folds`, and `internal/syntax` creates their
+  result objects, but the current `cmd/jided` version stub does not dispatch
+  these methods over a transport.
+* **Why.** WP2 adds the headless parser and protocol surface. The daemon
+  transport and method dispatcher are not part of this work package.
+* **How to close the gap.** Add a daemon dispatcher when the transport is
+  implemented and exercise the three requests end to end over that transport.
+
+---
+
 ## M1 WP1 — workspace, vfs, protocol surface
 
 ### The symbolic links of Windows are not exercised

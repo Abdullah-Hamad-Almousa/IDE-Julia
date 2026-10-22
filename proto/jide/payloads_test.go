@@ -19,6 +19,9 @@ func TestWorkspaceAndDocumentMethodsAreKnown(t *testing.T) {
 		MethodDocumentSave,
 		MethodDocumentDidChange,
 		MethodDocumentDidSave,
+		MethodIndexSymbols,
+		MethodSyntaxHighlights,
+		MethodSyntaxFolds,
 	}
 	for _, method := range methods {
 		if !method.IsKnown() {
@@ -61,17 +64,41 @@ func TestMethodCatalogReferencesThePayloadObjects(t *testing.T) {
 		"documentChangeParams":          true,
 		"documentSaveParams":            true,
 		"documentReadParams":            true,
+		"documentSymbolsParams":         true,
+		"textSearchParams":              true,
+		"syntaxHighlightsParams":        true,
+		"syntaxFoldsParams":             true,
 	}
 	for _, info := range Methods() {
 		if info.Params == "" {
 			continue
 		}
 		if !strings.HasPrefix(string(info.Name), "workspace/") &&
-			!strings.HasPrefix(string(info.Name), "document/") {
+			!strings.HasPrefix(string(info.Name), "document/") &&
+			!strings.HasPrefix(string(info.Name), "index/") &&
+			!strings.HasPrefix(string(info.Name), "syntax/") {
 			continue
 		}
 		if !known[info.Params] {
 			t.Errorf("method %q refers to the unknown parameter object %q", info.Name, info.Params)
+		}
+	}
+}
+
+func TestJSONSchemaContainsSyntaxPayloads(t *testing.T) {
+	doc := decodeSchema(t)
+	defs, ok := doc["$defs"].(map[string]any)
+	if !ok {
+		t.Fatalf("$defs is %T, want object", doc["$defs"])
+	}
+	for _, name := range []string{
+		"syntaxPosition", "syntaxRange", "syntaxToken", "syntaxDiagnostic",
+		"documentSymbolsParams", "documentSymbolsResult", "documentSymbol",
+		"syntaxHighlightsParams", "syntaxHighlightsResult", "syntaxFoldsParams",
+		"syntaxFoldsResult", "syntaxFoldRange",
+	} {
+		if _, ok := defs[name]; !ok {
+			t.Errorf("$defs is missing %q", name)
 		}
 	}
 }

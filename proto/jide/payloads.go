@@ -308,3 +308,134 @@ type TextSearchResult struct {
 	// the limit was reached.
 	Truncated bool `json:"truncated,omitempty"`
 }
+
+// SyntaxPosition is a zero-based source position. Column counts UTF-8 bytes
+// to match Tree-sitter source coordinates.
+type SyntaxPosition struct {
+	Line   int `json:"line"`
+	Column int `json:"column"`
+}
+
+// SyntaxRange is a half-open source range with byte offsets and positions.
+type SyntaxRange struct {
+	StartByte int            `json:"startByte"`
+	EndByte   int            `json:"endByte"`
+	Start     SyntaxPosition `json:"start"`
+	End       SyntaxPosition `json:"end"`
+}
+
+// SyntaxTokenKind is the editor-neutral category of a Julia syntax token.
+type SyntaxTokenKind string
+
+const (
+	SyntaxTokenIdentifier      SyntaxTokenKind = "identifier"
+	SyntaxTokenKeyword         SyntaxTokenKind = "keyword"
+	SyntaxTokenOperator        SyntaxTokenKind = "operator"
+	SyntaxTokenNumber          SyntaxTokenKind = "number"
+	SyntaxTokenBoolean         SyntaxTokenKind = "boolean"
+	SyntaxTokenString          SyntaxTokenKind = "string"
+	SyntaxTokenStringDelimiter SyntaxTokenKind = "stringDelimiter"
+	SyntaxTokenStringPrefix    SyntaxTokenKind = "stringPrefix"
+	SyntaxTokenStringEscape    SyntaxTokenKind = "stringEscape"
+	SyntaxTokenCommand         SyntaxTokenKind = "command"
+	SyntaxTokenCharacter       SyntaxTokenKind = "character"
+	SyntaxTokenComment         SyntaxTokenKind = "comment"
+	SyntaxTokenInterpolation   SyntaxTokenKind = "interpolation"
+	SyntaxTokenMacro           SyntaxTokenKind = "macro"
+	SyntaxTokenPunctuation     SyntaxTokenKind = "punctuation"
+	SyntaxTokenError           SyntaxTokenKind = "error"
+)
+
+// SyntaxToken is one highlighted Julia source span.
+type SyntaxToken struct {
+	Kind  SyntaxTokenKind `json:"kind"`
+	Text  string          `json:"text"`
+	Range SyntaxRange     `json:"range"`
+}
+
+// SyntaxDiagnostic describes a syntax error recovered by the Julia parser.
+type SyntaxDiagnostic struct {
+	Message string      `json:"message"`
+	Range   SyntaxRange `json:"range"`
+}
+
+// DocumentSymbolsParams are the parameters of MethodIndexSymbols. Text is the
+// current editor buffer, so symbol requests do not depend on disk state.
+type DocumentSymbolsParams struct {
+	URI  string `json:"uri"`
+	Text string `json:"text"`
+}
+
+// DocumentSymbolKind classifies a Julia declaration.
+type DocumentSymbolKind string
+
+const (
+	DocumentSymbolModule   DocumentSymbolKind = "module"
+	DocumentSymbolStruct   DocumentSymbolKind = "struct"
+	DocumentSymbolType     DocumentSymbolKind = "type"
+	DocumentSymbolFunction DocumentSymbolKind = "function"
+	DocumentSymbolMacro    DocumentSymbolKind = "macro"
+	DocumentSymbolConstant DocumentSymbolKind = "constant"
+	DocumentSymbolVariable DocumentSymbolKind = "variable"
+	DocumentSymbolField    DocumentSymbolKind = "field"
+)
+
+// DocumentSymbol is a declaration in the parsed document.
+type DocumentSymbol struct {
+	Name           string             `json:"name"`
+	Kind           DocumentSymbolKind `json:"kind"`
+	Range          SyntaxRange        `json:"range"`
+	SelectionRange SyntaxRange        `json:"selectionRange"`
+	Children       []DocumentSymbol   `json:"children,omitempty"`
+}
+
+// DocumentSymbolsResult is the result of MethodIndexSymbols.
+type DocumentSymbolsResult struct {
+	URI         string             `json:"uri"`
+	Symbols     []DocumentSymbol   `json:"symbols"`
+	Diagnostics []SyntaxDiagnostic `json:"diagnostics"`
+}
+
+// SyntaxHighlightsParams are the parameters of MethodSyntaxHighlights.
+type SyntaxHighlightsParams struct {
+	URI  string `json:"uri"`
+	Text string `json:"text"`
+}
+
+// SyntaxHighlightsResult is the result of MethodSyntaxHighlights.
+type SyntaxHighlightsResult struct {
+	URI         string             `json:"uri"`
+	Tokens      []SyntaxToken      `json:"tokens"`
+	Diagnostics []SyntaxDiagnostic `json:"diagnostics"`
+}
+
+// SyntaxFoldsParams are the parameters of MethodSyntaxFolds.
+type SyntaxFoldsParams struct {
+	URI  string `json:"uri"`
+	Text string `json:"text"`
+}
+
+// SyntaxFoldKind classifies a foldable Julia source range.
+type SyntaxFoldKind string
+
+const (
+	SyntaxFoldBlock   SyntaxFoldKind = "block"
+	SyntaxFoldComment SyntaxFoldKind = "comment"
+	SyntaxFoldString  SyntaxFoldKind = "string"
+)
+
+// SyntaxFoldRange is a multiline region an editor may collapse. Line numbers
+// are zero-based and inclusive.
+type SyntaxFoldRange struct {
+	Kind      SyntaxFoldKind `json:"kind"`
+	StartLine int            `json:"startLine"`
+	EndLine   int            `json:"endLine"`
+	Range     SyntaxRange    `json:"range"`
+}
+
+// SyntaxFoldsResult is the result of MethodSyntaxFolds.
+type SyntaxFoldsResult struct {
+	URI         string             `json:"uri"`
+	Folds       []SyntaxFoldRange  `json:"folds"`
+	Diagnostics []SyntaxDiagnostic `json:"diagnostics"`
+}

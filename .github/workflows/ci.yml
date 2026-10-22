@@ -17,6 +17,7 @@ concurrency:
 env:
   GO_VERSION: "1.24"
   GOLANGCI_LINT_VERSION: v1.64.8
+  CGO_ENABLED: "1"
 
 jobs:
   build:
@@ -31,6 +32,7 @@ jobs:
           - windows-latest
         module:
           - proto/jide
+          - internal/syntax
           - internal/workspace
           - internal/vfs
           - cmd/jided
@@ -47,6 +49,21 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           check-latest: true
+
+      - name: Set up MinGW for cgo
+        if: runner.os == 'Windows'
+        id: msys2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: mingw-w64-x86_64-gcc
+
+      - name: Add MinGW compiler to PATH
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Add-Content -Path $env:GITHUB_PATH -Value (Join-Path "${{ steps.msys2.outputs.msys2-location }}" 'mingw64\bin')
 
       - name: Build (${{ matrix.module }})
         working-directory: ${{ matrix.module }}
@@ -88,13 +105,13 @@ jobs:
       # a module, so the pattern matches nothing. The module prefixes below
       # select every package of the workspace.
       - name: Build the whole workspace
-        run: go build ./proto/jide/... ./internal/workspace/... ./internal/vfs/... ./cmd/jided/... ./cmd/jide/...
+        run: go build ./proto/jide/... ./internal/syntax/... ./internal/workspace/... ./internal/vfs/... ./cmd/jided/... ./cmd/jide/...
 
       - name: Test the whole workspace
-        run: go test ./proto/jide/... ./internal/workspace/... ./internal/vfs/... ./cmd/jided/... ./cmd/jide/...
+        run: go test ./proto/jide/... ./internal/syntax/... ./internal/workspace/... ./internal/vfs/... ./cmd/jided/... ./cmd/jide/...
 
       - name: Vet the whole workspace
-        run: go vet ./proto/jide/... ./internal/workspace/... ./internal/vfs/... ./cmd/jided/... ./cmd/jide/...
+        run: go vet ./proto/jide/... ./internal/syntax/... ./internal/workspace/... ./internal/vfs/... ./cmd/jided/... ./cmd/jide/...
 
   lint:
     name: lint (${{ matrix.os }}, ${{ matrix.module }})
@@ -108,6 +125,7 @@ jobs:
           - windows-latest
         module:
           - proto/jide
+          - internal/syntax
           - internal/workspace
           - internal/vfs
           - cmd/jided
@@ -121,6 +139,21 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           check-latest: true
+
+      - name: Set up MinGW for cgo
+        if: runner.os == 'Windows'
+        id: msys2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: mingw-w64-x86_64-gcc
+
+      - name: Add MinGW compiler to PATH
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Add-Content -Path $env:GITHUB_PATH -Value (Join-Path "${{ steps.msys2.outputs.msys2-location }}" 'mingw64\bin')
 
       - name: Lint (${{ matrix.module }})
         uses: golangci/golangci-lint-action@v6
