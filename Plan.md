@@ -254,21 +254,21 @@ Each WP: separate module directory, public API reviewed by another agent,
 secrets; PR-sized commits; acceptance criteria are executable tests where
 possible.
 
-| WP | Scope | Key acceptance tests |
-|---|---|---|
-| **M0 WP0** | Repo, `go.work`, CI (GitHub Actions: build+test+lint on 3 OS), AGENTS.md conventions, `proto/jide` skeleton | CI green; `go vet`/golangci clean |
-| **M1 WP1** | `workspace` + `vfs`: open folder, detect Julia env (`Project.toml`), fs watching, snapshots | integration test on fixture repo incl. symlinked deps |
-| **M1 WP2** | `syntax`: vendor tree-sitter-julia via `go-tree-sitter`; lexer-level highlighting API, `DocumentSymbol`, f-string parsing exploits (string interpolation tasks), fold ranges | golden parse-tree tests on corpus of 100 Julia files |
-| **M1 WP3** | UI shell: Wails window, Svelte app skeleton (Vite build, typed stores), Monaco editor component wired to `syntax` highlights via Monarch bridge, editor tabs, file tree, status bar (Julia env picker) | manual smoke scripted via Wails; e2e open-edit-save file |
-| **M2 WP4** | `lsp`: spawn/discover LanguageServer.jl via juliaup; LSP client; map diagnostics/hover/completion/references to UI; crash-restart w/ backoff | e2e with real Julia 1.10+ + LanguageServer.jl in CI (tolerance: skip if Julia missing) |
-| **M2 WP5** | `index`: trigram search + symbol index; go-to-def fallback when LS warming up; rename (LSP) | bench: 10k-file workspace warm-up < 30 s |
-| **M3 WP6** | `pkg`: envs list, add/remove/upgrade packages via Pkg subprocess, Manifest diff view, dependency graph | fixture env operations in temp dir; deterministic output parsing |
-| **M4 WP7** | `console`: ConPTY/PTY REPL, multiple sessions per env, re-open sessions, command history | process lifecycle tests incl. kill/restart on both Windows ConPTY and Unix PTY |
-| **M5 WP8** | `dap`: DAP client, adapter discovery of DebugAdapter.jl, breakpoints/stepping/stack panels with PyCharm's measured timeout policy (init 10 s, launch 10 s, attach 20 s, evaluate 30 s) as initial defaults; function-breakpoint support | mock-DAP goldens + optional real adapter e2e |
-| **M6 WP9** | `runconf` + `testrun`: typed run configs (script/module/REPL), Test Explorer streaming `@testset` results, failure navigation | fixture project test runs across pass/fail/skipped |
-| **M7 WP10** | polish: settings UI (JSON-Schema-driven), error reporter, crash logs, i18n-ready strings | settings round-trip tests |
-| **M8 WP11** | packaging: native installers (Windows/nsis, macOS/dmg, Linux/AppImage), auto-update opt-out channel, code-signing pipeline doc | package smoke runs on CI artifacts |
-| **M8 WP12** | docs: user guide, protocol reference, extension-author guide | docs build green |
+| WP | Scope | Key acceptance tests | Status |
+|---|---|---|---|
+| **M0 WP0** | Repo, `go.work`, CI (GitHub Actions: build+test+lint on 3 OS), AGENTS.md conventions, `proto/jide` skeleton | CI green; `go vet`/golangci clean | ✅ done (`cd2d37c`, `586b687`) |
+| **M1 WP1** | `workspace` + `vfs`: open folder, detect Julia env (`Project.toml`), fs watching, snapshots | integration test on fixture repo incl. symlinked deps | ⬜ todo |
+| **M1 WP2** | `syntax`: vendor tree-sitter-julia via `go-tree-sitter`; lexer-level highlighting API, `DocumentSymbol`, f-string parsing exploits (string interpolation tasks), fold ranges | golden parse-tree tests on corpus of 100 Julia files | ⬜ todo |
+| **M1 WP3** | UI shell: Wails window, Svelte app skeleton (Vite build, typed stores), Monaco editor component wired to `syntax` highlights via Monarch bridge, editor tabs, file tree, status bar (Julia env picker) | manual smoke scripted via Wails; e2e open-edit-save file | ⬜ todo |
+| **M2 WP4** | `lsp`: spawn/discover LanguageServer.jl via juliaup; LSP client; map diagnostics/hover/completion/references to UI; crash-restart w/ backoff | e2e with real Julia 1.10+ + LanguageServer.jl in CI (tolerance: skip if Julia missing) | ⬜ todo |
+| **M2 WP5** | `index`: trigram search + symbol index; go-to-def fallback when LS warming up; rename (LSP) | bench: 10k-file workspace warm-up < 30 s | ⬜ todo |
+| **M3 WP6** | `pkg`: envs list, add/remove/upgrade packages via Pkg subprocess, Manifest diff view, dependency graph | fixture env operations in temp dir; deterministic output parsing | ⬜ todo |
+| **M4 WP7** | `console`: ConPTY/PTY REPL, multiple sessions per env, re-open sessions, command history | process lifecycle tests incl. kill/restart on both Windows ConPTY and Unix PTY | ⬜ todo |
+| **M5 WP8** | `dap`: DAP client, adapter discovery of DebugAdapter.jl, breakpoints/stepping/stack panels with PyCharm's measured timeout policy (init 10 s, launch 10 s, attach 20 s, evaluate 30 s) as initial defaults; function-breakpoint support | mock-DAP goldens + optional real adapter e2e | ⬜ todo |
+| **M6 WP9** | `runconf` + `testrun`: typed run configs (script/module/REPL), Test Explorer streaming `@testset` results, failure navigation | fixture project test runs across pass/fail/skipped | ⬜ todo |
+| **M7 WP10** | polish: settings UI (JSON-Schema-driven), error reporter, crash logs, i18n-ready strings | settings round-trip tests | ⬜ todo |
+| **M8 WP11** | packaging: native installers (Windows/nsis, macOS/dmg, Linux/AppImage), auto-update opt-out channel, code-signing pipeline doc | package smoke runs on CI artifacts | ⬜ todo |
+| **M8 WP12** | docs: user guide, protocol reference, extension-author guide | docs build green | ⬜ todo |
 
 **Agent operating rules (for the build agents):**
 - Each WP owner passes ownership only when acceptance tests are green; other
