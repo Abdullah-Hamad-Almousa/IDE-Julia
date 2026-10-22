@@ -19,12 +19,15 @@
   let host: HTMLDivElement;
   let editor: monaco.editor.IStandaloneCodeEditor | null = null;
   let syncing = false;
+  let activePath = '';
   let knownPaths = new Set<string>();
 
   onMount(() => {
-    editor = createJuliaEditor(host, (path, text) => {
-      if (!syncing) onChange(path, text);
-    }, onSave);
+    editor = createJuliaEditor(host, (_path, text) => {
+      if (!syncing && activePath) onChange(activePath, text);
+    }, (_path, text) => {
+      if (activePath) onSave(activePath, text);
+    });
     editor.onDidChangeCursorPosition((event) => onCursor(event.position.lineNumber, event.position.column));
     if (document) showDocument(document);
   });
@@ -34,6 +37,7 @@
 
   function showDocument(next: DocumentView): void {
     if (!editor) return;
+    const documentChanged = activePath !== next.path;
     const current = editor.getModel();
     syncing = true;
     try {
@@ -42,10 +46,12 @@
       } else {
         applyDocument(editor, next);
       }
+      activePath = next.path;
       knownPaths.add(next.path);
     } finally {
       syncing = false;
     }
+    if (documentChanged) editor.focus();
     updateJuliaHighlights();
   }
 

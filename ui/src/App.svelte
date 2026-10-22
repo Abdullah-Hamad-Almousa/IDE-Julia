@@ -11,6 +11,7 @@
     replaceDocument,
     workspaceStore
   } from './lib/stores';
+  import { windowControls } from './lib/api';
   import type { DocumentView, FileNode, WorkspaceView } from './lib/types';
 
   let busy = false;
@@ -201,6 +202,14 @@
     }
   }
 
+  function closeApplication(): void {
+    const dirtyCount = $documentsStore.filter((document) => document.dirty).length;
+    if (dirtyCount > 0 && !window.confirm(
+      `${dirtyCount} file${dirtyCount === 1 ? ' has' : 's have'} unsaved changes. Close jide and discard them?`
+    )) return;
+    windowControls.quit();
+  }
+
   function filterNodes(nodes: FileNode[], query: string): FileNode[] {
     if (!query) return nodes;
     return nodes.flatMap((node) => {
@@ -246,6 +255,17 @@
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4.5h4l1.4 1.6H14v6.4H2z"/><path d="M2 6.1h12"/></svg>
         <span>Open folder</span>
       </button>
+      <div class="window-controls" role="group" aria-label="Window controls">
+        <button class="window-control" on:click={() => windowControls.minimize()} aria-label="Minimize" title="Minimize">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 8h8"/></svg>
+        </button>
+        <button class="window-control" on:click={() => windowControls.toggleMaximize()} aria-label="Maximize or restore" title="Maximize or restore">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="4" y="4" width="8" height="8" rx=".5"/></svg>
+        </button>
+        <button class="window-control window-close" on:click={closeApplication} aria-label="Close jide" title="Close">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8"/></svg>
+        </button>
+      </div>
     </div>
   </header>
 
@@ -431,7 +451,6 @@
     </div>
   </footer>
 
-  {#if busy}<div class="busy-indicator" aria-label="Working"></div>{/if}
   {#if errorMessage}
     <div class="error-toast" role="alert">
       <span class="error-icon">!</span><span>{errorMessage}</span>

@@ -13,8 +13,15 @@ interface WailsApp {
   GetSyntaxHighlights(uri: string, text: string): Promise<SyntaxHighlightsResult>;
 }
 
+interface WailsRuntime {
+  WindowMinimise(): void;
+  WindowToggleMaximise(): void;
+  Quit(): void;
+}
+
 declare global {
   interface Window {
+    runtime?: WailsRuntime;
     go?: {
       main?: {
         App?: WailsApp;
@@ -42,4 +49,10 @@ export const backend = {
   saveFile: (path: string, text: string) => bridge().SaveFile(path, text),
   closeFile: (path: string, discard: boolean) => bridge().CloseFile(path, discard),
   syntaxHighlights: (uri: string, text: string) => bridge().GetSyntaxHighlights(uri, text)
+};
+
+export const windowControls = {
+  minimize: () => window.runtime?.WindowMinimise(),
+  toggleMaximize: () => window.runtime?.WindowToggleMaximise(),
+  quit: () => window.runtime?.Quit()
 };
