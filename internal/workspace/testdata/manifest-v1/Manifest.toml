@@ -1,0 +1,13 @@
+julia_version = "1.6.0"
+manifest_format = "1.0"
+
+[[Base64]]
+git-tree-sha1 = "9a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b"
+uuid = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
+version = "1.0.2"
+
+[[Dates]]
+deps = ["Printf"]
+git-tree-sha1 = "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d"
+uuid = "ade2ca70-3891-5945-98fb-dc099432e06a"
+version = "1.6.1"

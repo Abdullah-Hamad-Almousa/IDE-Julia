@@ -50,15 +50,25 @@ const (
 	MethodWorkspaceClose Method = "workspace/close"
 	// MethodWorkspaceState returns the state of the open workspace.
 	MethodWorkspaceState Method = "workspace/state"
+	// MethodWorkspaceTree lists the file tree of the open workspace.
+	MethodWorkspaceTree Method = "workspace/tree"
+	// MethodWorkspaceDidChangeFiles publishes file-system changes of the
+	// open workspace.
+	MethodWorkspaceDidChangeFiles Method = "workspace/didChangeFiles"
 
 	// MethodDocumentOpen opens a document for editing.
 	MethodDocumentOpen Method = "document/open"
 	// MethodDocumentClose closes an open document.
 	MethodDocumentClose Method = "document/close"
-	// MethodDocumentChange notifies the engine of a document edit.
-	MethodDocumentChange Method = "document/didChange"
-	// MethodDocumentSave notifies the engine that a document was saved.
-	MethodDocumentSave Method = "document/didSave"
+	// MethodDocumentDidChange notifies the engine of a document edit.
+	MethodDocumentDidChange Method = "document/didChange"
+	// MethodDocumentDidSave notifies the engine that a document was saved.
+	MethodDocumentDidSave Method = "document/didSave"
+	// MethodDocumentRead returns the content of an open document.
+	MethodDocumentRead Method = "document/read"
+	// MethodDocumentSave writes a document to disk and returns the version of
+	// the stored snapshot.
+	MethodDocumentSave Method = "document/save"
 
 	// MethodIndexSearch runs a text search over the workspace index.
 	MethodIndexSearch Method = "index/search"
@@ -117,6 +127,19 @@ var methodCatalog = []MethodInfo{
 		Name:      MethodWorkspaceState,
 		Direction: DirectionClientToServer,
 		Summary:   "Return the state of the open workspace.",
+		Params:    "workspaceStateParams",
+	},
+	{
+		Name:      MethodWorkspaceTree,
+		Direction: DirectionClientToServer,
+		Summary:   "List the file tree of the open workspace.",
+		Params:    "workspaceTreeParams",
+	},
+	{
+		Name:      MethodWorkspaceDidChangeFiles,
+		Direction: DirectionServerToClient,
+		Summary:   "Publish file-system changes of the open workspace.",
+		Params:    "workspaceDidChangeFilesParams",
 	},
 	{
 		Name:      MethodDocumentOpen,
@@ -131,15 +154,27 @@ var methodCatalog = []MethodInfo{
 		Params:    "documentCloseParams",
 	},
 	{
-		Name:      MethodDocumentChange,
+		Name:      MethodDocumentDidChange,
 		Direction: DirectionClientToServer,
 		Summary:   "Notify the engine of a document edit.",
 		Params:    "documentChangeParams",
 	},
 	{
-		Name:      MethodDocumentSave,
+		Name:      MethodDocumentDidSave,
 		Direction: DirectionClientToServer,
 		Summary:   "Notify the engine that a document was saved.",
+		Params:    "documentSaveParams",
+	},
+	{
+		Name:      MethodDocumentRead,
+		Direction: DirectionClientToServer,
+		Summary:   "Return the content of an open document.",
+		Params:    "documentReadParams",
+	},
+	{
+		Name:      MethodDocumentSave,
+		Direction: DirectionClientToServer,
+		Summary:   "Write an open document to disk.",
 		Params:    "documentSaveParams",
 	},
 	{

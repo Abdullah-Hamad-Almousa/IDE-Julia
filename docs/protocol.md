@@ -91,10 +91,14 @@ calls the shell, `bidirectional`) and the name of its parameter object.
 | `workspace/open` | client → server | open a workspace folder |
 | `workspace/close` | client → server | close a workspace |
 | `workspace/state` | client → server | state of the open workspace |
+| `workspace/tree` | client → server | file tree of the open workspace |
+| `workspace/didChangeFiles` | server → client | file-system changes of the workspace |
 | `document/open` | client → server | open a document for editing |
 | `document/close` | client → server | close a document |
 | `document/didChange` | client → server | notify the engine of an edit |
 | `document/didSave` | client → server | notify the engine of a save |
+| `document/read` | client → server | content of an open document |
+| `document/save` | client → server | write an open document to disk |
 | `index/search` | client → server | search the workspace text index |
 | `index/symbols` | client → server | symbols of a document |
 | `lsp/status` | client → server | state of the Julia language server |
@@ -108,6 +112,74 @@ calls the shell, `bidirectional`) and the name of its parameter object.
 | `dap/stackTrace` | server → client | publish a stack trace |
 | `testrun/execute` | client → server | start a test run |
 | `extension/list` | client → server | list the registered extension bundles |
+
+### The workspace and document surface
+
+The `workspace` and the `document` namespaces cover the project model and
+the virtual file system of the engine. The payload objects are described in
+the `$defs` section of the exported schema.
+
+`workspace/open` answers with the identifier of the workspace, its root
+folder and the path of the detected `Project.toml`. `workspace/state` returns
+the whole state of the workspace:
+
+```json
+{
+  "workspaceId": "/home/user/project",
+  "root": "/home/user/project",
+  "project": {
+    "path": "/home/user/project/Project.toml",
+    "name": "Demo",
+    "uuid": "6f6c8b12-1f1a-4f0a-9c0a-1f1a4f0a9c0a",
+    "juliaCompat": "1.10",
+    "compat": { "julia": "1.10" },
+    "dependencies": [
+      { "name": "Dates", "uuid": "ade2ca70-...", "version": "1.10.0" }
+    ],
+    "weakDependencies": [],
+    "extras": [{ "name": "Test", "uuid": "8dfed614-..." }]
+  },
+  "manifest": {
+    "path": "/home/user/project/Manifest.toml",
+    "format": "2.0",
+    "juliaVersion": "1.10.3",
+    "projectHash": "0f1e2d3c...",
+    "packages": [
+      { "name": "Dates", "uuid": "ade2ca70-...", "version": "1.10.0" }
+    ]
+  }
+}
+```
+
+The `project` and the `manifest` members are absent when the workspace has no
+Julia environment.
+
+`workspace/tree` lists the source tree of the workspace. Every entry holds
+the path relative to the root, the absolute path, the resolved real path and
+the flags of the entry:
+
+| Flag | Meaning |
+|---|---|
+| `isDirectory` | the entry is a directory |
+| `symlink` | the entry is a symbolic link or a junction |
+| `outsideRoot` | the entry points outside the workspace root |
+| `alias` | the entry points at a real path the scan already visited |
+| `linkTarget` | the raw target of a link |
+
+A link that points outside the root is reported in `externalSymlinks` and is
+not followed, so the shell can show it without leaving the workspace. A real
+path is listed at most once, so a link that points at an ancestor of the root
+cannot make the engine loop.
+
+`workspace/didChangeFiles` publishes the changes that the file watcher
+observed. Every change holds the absolute path of the file and its kind:
+`created`, `changed` or `deleted`.
+
+`document/read` returns the content of an open document with the version of
+its snapshot. `document/save` writes the content of the document to disk and
+returns the version of the stored snapshot. The `document/didChange` and
+`document/didSave` notifications remain the way the shell announces an edit
+or a save that it performed itself.
 
 ## JSON Schema
 

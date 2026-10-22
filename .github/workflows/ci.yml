@@ -31,6 +31,8 @@ jobs:
           - windows-latest
         module:
           - proto/jide
+          - internal/workspace
+          - internal/vfs
           - cmd/jided
           - cmd/jide
     defaults:
@@ -86,13 +88,13 @@ jobs:
       # a module, so the pattern matches nothing. The module prefixes below
       # select every package of the workspace.
       - name: Build the whole workspace
-        run: go build ./proto/jide/... ./cmd/jided/... ./cmd/jide/...
+        run: go build ./proto/jide/... ./internal/workspace/... ./internal/vfs/... ./cmd/jided/... ./cmd/jide/...
 
       - name: Test the whole workspace
-        run: go test ./proto/jide/... ./cmd/jided/... ./cmd/jide/...
+        run: go test ./proto/jide/... ./internal/workspace/... ./internal/vfs/... ./cmd/jided/... ./cmd/jide/...
 
       - name: Vet the whole workspace
-        run: go vet ./proto/jide/... ./cmd/jided/... ./cmd/jide/...
+        run: go vet ./proto/jide/... ./internal/workspace/... ./internal/vfs/... ./cmd/jided/... ./cmd/jide/...
 
   lint:
     name: lint (${{ matrix.os }}, ${{ matrix.module }})
@@ -106,6 +108,8 @@ jobs:
           - windows-latest
         module:
           - proto/jide
+          - internal/workspace
+          - internal/vfs
           - cmd/jided
           - cmd/jide
     steps:

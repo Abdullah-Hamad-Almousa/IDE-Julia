@@ -139,16 +139,30 @@ func buildSchema() schemaDocument {
 				},
 			},
 		},
-		"workspaceOpenParams":  schemaObject(workspaceOpenParamsSchema),
-		"workspaceOpenResult":  schemaObject(workspaceOpenResultSchema),
-		"workspaceCloseParams": schemaObject(workspaceCloseParamsSchema),
-		"documentOpenParams":   schemaObject(documentOpenParamsSchema),
-		"documentOpenResult":   schemaObject(documentOpenResultSchema),
-		"documentCloseParams":  schemaObject(documentCloseParamsSchema),
-		"documentChangeParams": schemaObject(documentChangeParamsSchema),
-		"documentSaveParams":   schemaObject(documentSaveParamsSchema),
-		"textSearchParams":     schemaObject(textSearchParamsSchema),
-		"textSearchResult":     schemaObject(textSearchResultSchema),
+		"workspaceOpenParams":           schemaObject(workspaceOpenParamsSchema),
+		"workspaceOpenResult":           schemaObject(workspaceOpenResultSchema),
+		"workspaceCloseParams":          schemaObject(workspaceCloseParamsSchema),
+		"workspaceStateParams":          schemaObject(workspaceStateParamsSchema),
+		"workspaceStateResult":          schemaObject(workspaceStateResultSchema),
+		"workspaceTreeParams":           schemaObject(workspaceTreeParamsSchema),
+		"workspaceTreeResult":           schemaObject(workspaceTreeResultSchema),
+		"workspaceDidChangeFilesParams": schemaObject(workspaceDidChangeFilesParamsSchema),
+		"workspaceFileEntry":            schemaObject(workspaceFileEntrySchema),
+		"externalSymlink":               schemaObject(externalSymlinkSchema),
+		"documentOpenParams":            schemaObject(documentOpenParamsSchema),
+		"documentOpenResult":            schemaObject(documentOpenResultSchema),
+		"documentCloseParams":           schemaObject(documentCloseParamsSchema),
+		"documentChangeParams":          schemaObject(documentChangeParamsSchema),
+		"documentSaveParams":            schemaObject(documentSaveParamsSchema),
+		"documentReadParams":            schemaObject(documentReadParamsSchema),
+		"documentReadResult":            schemaObject(documentReadResultSchema),
+		"documentSaveResult":            schemaObject(documentSaveResultSchema),
+		"textSearchParams":              schemaObject(textSearchParamsSchema),
+		"textSearchResult":              schemaObject(textSearchResultSchema),
+		"juliaProjectInfo":              schemaObject(juliaProjectInfoSchema),
+		"juliaDependencyInfo":           schemaObject(juliaDependencyInfoSchema),
+		"juliaManifestInfo":             schemaObject(juliaManifestInfoSchema),
+		"juliaManifestPackageInfo":      schemaObject(juliaManifestPackageInfoSchema),
 	}
 
 	return schemaDocument{
@@ -209,6 +223,107 @@ var (
 		"workspaceId": requiredString("Identifier of the workspace to close."),
 	}
 
+	workspaceStateParamsSchema = map[string]any{
+		"workspaceId": requiredString("Identifier of the workspace whose state is requested."),
+	}
+
+	workspaceStateResultSchema = map[string]any{
+		"workspaceId": requiredString("Identifier of the workspace."),
+		"root":        requiredString("Absolute path of the workspace root folder."),
+		"project": map[string]any{
+			"$ref":        "#/$defs/juliaProjectInfo",
+			"description": "The detected Julia project, absent when the workspace has none.",
+		},
+		"manifest": map[string]any{
+			"$ref":        "#/$defs/juliaManifestInfo",
+			"description": "The detected Julia manifest, absent when the workspace has none.",
+		},
+	}
+
+	workspaceTreeParamsSchema = map[string]any{
+		"workspaceId": requiredString("Identifier of the workspace to list."),
+		"maxDepth": map[string]any{
+			"type":        "integer",
+			"description": "Maximum number of directory levels below the root; zero lists the whole tree.",
+		},
+	}
+
+	workspaceTreeResultSchema = map[string]any{
+		"root": requiredString("Absolute path of the workspace root folder."),
+		"entries": map[string]any{
+			"type": "array",
+			"items": map[string]any{
+				"$ref": "#/$defs/workspaceFileEntry",
+			},
+		},
+		"externalSymlinks": map[string]any{
+			"type": "array",
+			"items": map[string]any{
+				"$ref": "#/$defs/externalSymlink",
+			},
+		},
+	}
+
+	workspaceDidChangeFilesParamsSchema = map[string]any{
+		"workspaceId": requiredString("Identifier of the workspace the changes belong to."),
+		"changes": map[string]any{
+			"type": "array",
+			"items": map[string]any{
+				"type":     "object",
+				"required": []string{"path", "type"},
+				"properties": map[string]any{
+					"path": requiredString("Absolute path of the changed file."),
+					"type": map[string]any{
+						"type":        "string",
+						"enum":        []string{string(FileChangeCreated), string(FileChangeChanged), string(FileChangeDeleted)},
+						"description": "Kind of the change.",
+					},
+				},
+			},
+		},
+	}
+
+	workspaceFileEntrySchema = map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"path":         requiredString("Path of the entry relative to the workspace root, in slash form."),
+			"absolutePath": requiredString("Absolute path of the entry."),
+			"isDirectory": map[string]any{
+				"type":        "boolean",
+				"description": "True when the entry is a directory.",
+			},
+			"symlink": map[string]any{
+				"type":        "boolean",
+				"description": "True when the entry itself is a symbolic link.",
+			},
+			"outsideRoot": map[string]any{
+				"type":        "boolean",
+				"description": "True when the entry points outside the workspace root.",
+			},
+			"linkTarget": map[string]any{
+				"type":        "string",
+				"description": "Raw target of a symbolic link.",
+			},
+			"alias": map[string]any{
+				"type":        "boolean",
+				"description": "True when the entry points at an already visited real path.",
+			},
+			"size": map[string]any{
+				"type":        "integer",
+				"description": "Size of the file in bytes.",
+			},
+		},
+	}
+
+	externalSymlinkSchema = map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"path":         requiredString("Path of the link relative to the workspace root, in slash form."),
+			"target":       requiredString("Raw target of the link."),
+			"resolvedPath": requiredString("Absolute path the link points to."),
+		},
+	}
+
 	documentOpenParamsSchema = map[string]any{
 		"workspaceId": requiredString("Identifier of the owning workspace."),
 		"uri":         requiredString("Document URI."),
@@ -237,6 +352,129 @@ var (
 	documentSaveParamsSchema = map[string]any{
 		"uri":  requiredString("Document URI."),
 		"text": requiredString("Full document content at save time."),
+	}
+
+	documentReadParamsSchema = map[string]any{
+		"uri": requiredString("Document URI."),
+	}
+
+	documentReadResultSchema = map[string]any{
+		"uri":     requiredString("Document URI."),
+		"version": map[string]any{"type": "integer", "description": "Version of the returned snapshot."},
+		"text":    requiredString("Full document content."),
+		"dirty": map[string]any{
+			"type":        "boolean",
+			"description": "True when the content differs from the file on disk.",
+		},
+	}
+
+	documentSaveResultSchema = map[string]any{
+		"uri":     requiredString("Document URI."),
+		"version": map[string]any{"type": "integer", "description": "Version of the snapshot written to disk."},
+	}
+
+	juliaProjectInfoSchema = map[string]any{
+		"path": requiredString("Absolute path of the Project.toml file."),
+		"name": requiredString("Package name of the project."),
+		"uuid": map[string]any{
+			"type":        "string",
+			"description": "Package UUID of the project.",
+		},
+		"version": map[string]any{
+			"type":        "string",
+			"description": "Package version of the project.",
+		},
+		"juliaCompat": map[string]any{
+			"type":        "string",
+			"description": "Julia version compatibility of the project.",
+		},
+		"compat": map[string]any{
+			"type":                 "object",
+			"additionalProperties": map[string]any{"type": "string"},
+			"description":          "The whole [compat] section of the project.",
+		},
+		"dependencies": map[string]any{
+			"type": "array",
+			"items": map[string]any{
+				"$ref": "#/$defs/juliaDependencyInfo",
+			},
+		},
+		"weakDependencies": map[string]any{
+			"type": "array",
+			"items": map[string]any{
+				"$ref": "#/$defs/juliaDependencyInfo",
+			},
+		},
+		"extras": map[string]any{
+			"type": "array",
+			"items": map[string]any{
+				"$ref": "#/$defs/juliaDependencyInfo",
+			},
+		},
+	}
+
+	juliaDependencyInfoSchema = map[string]any{
+		"name": requiredString("Package name."),
+		"uuid": map[string]any{
+			"type":        "string",
+			"description": "Package UUID.",
+		},
+		"version": map[string]any{
+			"type":        "string",
+			"description": "Resolved version, empty when it is unknown.",
+		},
+		"weak": map[string]any{
+			"type":        "boolean",
+			"description": "True when the dependency is a weak dependency.",
+		},
+		"dependencies": map[string]any{
+			"type":        "array",
+			"items":       map[string]any{"type": "string"},
+			"description": "Names of the direct dependencies of the package.",
+		},
+	}
+
+	juliaManifestInfoSchema = map[string]any{
+		"path": requiredString("Absolute path of the Manifest.toml file."),
+		"format": map[string]any{
+			"type":        "string",
+			"description": "Manifest format version, for example \"2.0\".",
+		},
+		"juliaVersion": map[string]any{
+			"type":        "string",
+			"description": "Julia version the manifest was resolved with.",
+		},
+		"projectHash": map[string]any{
+			"type":        "string",
+			"description": "Identifier of the project the manifest belongs to.",
+		},
+		"packages": map[string]any{
+			"type": "array",
+			"items": map[string]any{
+				"$ref": "#/$defs/juliaManifestPackageInfo",
+			},
+		},
+	}
+
+	juliaManifestPackageInfoSchema = map[string]any{
+		"name": requiredString("Package name."),
+		"uuid": map[string]any{
+			"type":        "string",
+			"description": "Package UUID.",
+		},
+		"version": map[string]any{
+			"type":        "string",
+			"description": "Resolved version.",
+		},
+		"treeHash": map[string]any{
+			"type":        "string",
+			"description": "Source tree hash of the package; empty for manifest format 2.0.",
+		},
+		"dependencies": map[string]any{
+			"type":        "array",
+			"items":       map[string]any{"type": "string"},
+			"description": "Names of the direct dependencies of the package.",
+		},
 	}
 
 	textSearchParamsSchema = map[string]any{
