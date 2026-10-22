@@ -8,6 +8,21 @@ Format: one section per work package, newest first within a milestone.
 
 ---
 
+## M2 WP4 — Julia LanguageServer integration
+
+### Daemon transport and dispatcher remain unavailable
+
+* **What is missing.** The Wails shell calls the headless LSP service through
+  its existing in-process bridge; it does not reach `cmd/jided` through
+  JSON-RPC.
+* **Why.** `cmd/jided` is still a version stub and has no transport or method
+  dispatcher, which is outside WP4's current daemon scope.
+* **How to close the gap.** Implement the engine daemon transport/dispatcher
+  and replace the temporary Wails adapter with a protocol client while keeping
+  the LSP service headless.
+
+---
+
 ## M1 WP3 — Wails UI shell
 
 ### Workspace operations use a temporary in-process Wails adapter

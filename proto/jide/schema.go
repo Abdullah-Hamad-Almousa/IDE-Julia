@@ -171,6 +171,29 @@ func buildSchema() schemaDocument {
 		"syntaxFoldsParams":             schemaObject(syntaxFoldsParamsSchema),
 		"syntaxFoldsResult":             schemaObject(syntaxFoldsResultSchema),
 		"syntaxFoldRange":               schemaObject(syntaxFoldRangeSchema),
+		"lspStartParams":                schemaObject(lspStartParamsSchema),
+		"lspStartResult":                schemaObject(lspStartResultSchema),
+		"lspStopParams":                 schemaObject(lspStopParamsSchema),
+		"lspStopResult":                 schemaObject(lspStopResultSchema),
+		"lspStatusParams":               schemaObject(lspStatusParamsSchema),
+		"lspStatusResult":               schemaObject(lspStatusResultSchema),
+		"lspHoverParams":                schemaObject(lspHoverParamsSchema),
+		"lspHoverResult":                schemaObject(lspHoverResultSchema),
+		"lspCompletionParams":           schemaObject(lspCompletionParamsSchema),
+		"lspCompletionResult":           schemaObject(lspCompletionResultSchema),
+		"lspReferencesParams":           schemaObject(lspReferencesParamsSchema),
+		"lspReferencesResult":           schemaObject(lspReferencesResultSchema),
+		"lspDefinitionParams":           schemaObject(lspDefinitionParamsSchema),
+		"lspDefinitionResult":           schemaObject(lspDefinitionResultSchema),
+		"lspDiagnosticsParams":          schemaObject(lspDiagnosticsParamsSchema),
+		"lspPosition":                   schemaObject(lspPositionSchema),
+		"lspRange":                      schemaObject(lspRangeSchema),
+		"lspLocation":                   schemaObject(lspLocationSchema),
+		"lspDiagnostic":                 schemaObject(lspDiagnosticSchema),
+		"lspMarkupContent":              schemaObject(lspMarkupContentSchema),
+		"lspHover":                      schemaObject(lspHoverSchema),
+		"lspCompletionItem":             schemaObject(lspCompletionItemSchema),
+		"lspTextChange":                 schemaObject(lspTextChangeSchema),
 		"juliaProjectInfo":              schemaObject(juliaProjectInfoSchema),
 		"juliaDependencyInfo":           schemaObject(juliaDependencyInfoSchema),
 		"juliaManifestInfo":             schemaObject(juliaManifestInfoSchema),
@@ -207,6 +230,23 @@ func schemaObject(properties map[string]any) map[string]any {
 
 func requiredString(description string) map[string]any {
 	return map[string]any{"type": "string", "description": description}
+}
+
+// optionalString describes a string member that a payload may omit.
+func optionalString(description string) map[string]any {
+	return requiredString(description)
+}
+
+// lspStateSchema describes the lifecycle state of the language server.
+func lspStateSchema() map[string]any {
+	return map[string]any{
+		"type": "string",
+		"enum": []string{
+			string(LSPStateStopped), string(LSPStateStarting),
+			string(LSPStateRunning), string(LSPStateRestarting),
+		},
+		"description": "Lifecycle state of the language server.",
+	}
 }
 
 var (
@@ -614,6 +654,164 @@ var (
 		"uri":         requiredString("Document URI."),
 		"folds":       schemaArrayRef("syntaxFoldRange"),
 		"diagnostics": schemaArrayRef("syntaxDiagnostic"),
+	}
+
+	lspStartParamsSchema = map[string]any{
+		"workspaceId": requiredString("Identifier of the workspace whose language server starts."),
+		"rootUri": map[string]any{
+			"type":        "string",
+			"description": "Root folder of the workspace, as an URI.",
+		},
+		"projectPath": map[string]any{
+			"type":        "string",
+			"description": "Path of the Julia project that selects the environment of the server.",
+		},
+	}
+
+	lspStartResultSchema = map[string]any{
+		"state":        lspStateSchema(),
+		"juliaVersion": optionalString("Version of the Julia runtime that runs the language server."),
+		"juliaChannel": optionalString("juliup channel of the Julia runtime."),
+		"executable":   optionalString("Path of the Julia executable."),
+	}
+
+	lspStopParamsSchema = map[string]any{
+		"workspaceId": requiredString("Identifier of the workspace whose language server stops."),
+	}
+
+	lspStopResultSchema = map[string]any{
+		"state": lspStateSchema(),
+	}
+
+	lspStatusParamsSchema = map[string]any{
+		"workspaceId": requiredString("Identifier of the workspace whose language server is asked for."),
+	}
+
+	lspStatusResultSchema = map[string]any{
+		"state":           lspStateSchema(),
+		"juliaVersion":    optionalString("Version of the Julia runtime that runs the language server."),
+		"juliaChannel":    optionalString("juliup channel of the Julia runtime."),
+		"executable":      optionalString("Path of the Julia executable."),
+		"restartAttempts": map[string]any{"type": "integer", "description": "Number of restarts since the last successful start."},
+		"lastError":       optionalString("Description of the last failure of the language server."),
+	}
+
+	lspHoverParamsSchema = map[string]any{
+		"uri":       requiredString("Document URI."),
+		"line":      map[string]any{"type": "integer", "description": "Zero-based line of the position."},
+		"character": map[string]any{"type": "integer", "description": "Zero-based UTF-16 column of the position."},
+	}
+
+	lspHoverResultSchema = map[string]any{
+		"uri": requiredString("Document URI."),
+		"hover": map[string]any{
+			"$ref":        "#/$defs/lspHover",
+			"description": "Documentation of the symbol under the cursor; absent when there is none.",
+		},
+	}
+
+	lspCompletionParamsSchema = map[string]any{
+		"uri":       requiredString("Document URI."),
+		"line":      map[string]any{"type": "integer", "description": "Zero-based line of the position."},
+		"character": map[string]any{"type": "integer", "description": "Zero-based UTF-16 column of the position."},
+	}
+
+	lspCompletionResultSchema = map[string]any{
+		"uri": requiredString("Document URI."),
+		"isIncomplete": map[string]any{
+			"type":        "boolean",
+			"description": "True when the list is only a prefix of the real one.",
+		},
+		"items": schemaArrayRef("lspCompletionItem"),
+	}
+
+	lspReferencesParamsSchema = map[string]any{
+		"uri":       requiredString("Document URI."),
+		"line":      map[string]any{"type": "integer", "description": "Zero-based line of the position."},
+		"character": map[string]any{"type": "integer", "description": "Zero-based UTF-16 column of the position."},
+		"includeDeclaration": map[string]any{
+			"type":        "boolean",
+			"description": "True when the declaration of the symbol is part of the answer.",
+		},
+	}
+
+	lspReferencesResultSchema = map[string]any{
+		"uri":       requiredString("Document URI."),
+		"locations": schemaArrayRef("lspLocation"),
+	}
+
+	lspDefinitionParamsSchema = map[string]any{
+		"uri":       requiredString("Document URI."),
+		"line":      map[string]any{"type": "integer", "description": "Zero-based line of the position."},
+		"character": map[string]any{"type": "integer", "description": "Zero-based UTF-16 column of the position."},
+	}
+
+	lspDefinitionResultSchema = map[string]any{
+		"uri":       requiredString("Document URI."),
+		"locations": schemaArrayRef("lspLocation"),
+	}
+
+	lspDiagnosticsParamsSchema = map[string]any{
+		"uri":         requiredString("Document URI."),
+		"diagnostics": schemaArrayRef("lspDiagnostic"),
+	}
+
+	lspPositionSchema = map[string]any{
+		"line":      map[string]any{"type": "integer", "description": "Zero-based line number."},
+		"character": map[string]any{"type": "integer", "description": "Zero-based UTF-16 code-unit column."},
+	}
+
+	lspRangeSchema = map[string]any{
+		"start": map[string]any{"$ref": "#/$defs/lspPosition"},
+		"end":   map[string]any{"$ref": "#/$defs/lspPosition"},
+	}
+
+	lspLocationSchema = map[string]any{
+		"uri":   requiredString("Document URI."),
+		"range": map[string]any{"$ref": "#/$defs/lspRange"},
+	}
+
+	lspDiagnosticSchema = map[string]any{
+		"range":    map[string]any{"$ref": "#/$defs/lspRange"},
+		"severity": map[string]any{"type": "integer", "description": "Severity of the diagnostic."},
+		"code":     optionalString("Code of the diagnostic."),
+		"source":   optionalString("Tool that reported the diagnostic."),
+		"message":  requiredString("Description of the problem."),
+	}
+
+	lspMarkupContentSchema = map[string]any{
+		"kind": map[string]any{
+			"type":        "string",
+			"enum":        []string{string(LSPMarkupPlainText), string(LSPMarkupMarkdown)},
+			"description": "Format of the text.",
+		},
+		"value": requiredString("The text itself."),
+	}
+
+	lspHoverSchema = map[string]any{
+		"contents": map[string]any{"$ref": "#/$defs/lspMarkupContent"},
+		"range": map[string]any{
+			"$ref":        "#/$defs/lspRange",
+			"description": "Range of the symbol under the cursor; absent when the server reports none.",
+		},
+	}
+
+	lspCompletionItemSchema = map[string]any{
+		"label":         requiredString("Text that the editor shows and inserts."),
+		"kind":          map[string]any{"type": "integer", "description": "Category of the item."},
+		"detail":        optionalString("Short description of the item."),
+		"documentation": optionalString("Long description of the item."),
+		"sortText":      optionalString("Text that orders the item in the list."),
+		"filterText":    optionalString("Text that filters the item while the user types."),
+		"insertText":    optionalString("Text that the editor inserts when it differs from the label."),
+	}
+
+	lspTextChangeSchema = map[string]any{
+		"range": map[string]any{
+			"$ref":        "#/$defs/lspRange",
+			"description": "Range that the change replaces; absent when the whole document changes.",
+		},
+		"text": requiredString("The new text."),
 	}
 )
 

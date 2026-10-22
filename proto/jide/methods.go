@@ -80,8 +80,24 @@ const (
 	// MethodSyntaxFolds returns the foldable ranges of a Julia document.
 	MethodSyntaxFolds Method = "syntax/folds"
 
+	// MethodLSPStart starts the Julia language server of a workspace.
+	MethodLSPStart Method = "lsp/start"
+	// MethodLSPStop stops the Julia language server of a workspace.
+	MethodLSPStop Method = "lsp/stop"
 	// MethodLSPStatus reports the state of the Julia language server.
 	MethodLSPStatus Method = "lsp/status"
+	// MethodLSPHover asks the language server for the documentation of the
+	// symbol at a position.
+	MethodLSPHover Method = "lsp/hover"
+	// MethodLSPCompletion asks the language server for the completion
+	// items at a position.
+	MethodLSPCompletion Method = "lsp/completion"
+	// MethodLSPReferences asks the language server for the references of the
+	// symbol at a position.
+	MethodLSPReferences Method = "lsp/references"
+	// MethodLSPDefinition asks the language server for the definition of
+	// the symbol at a position.
+	MethodLSPDefinition Method = "lsp/definition"
 	// MethodLSPDiagnostics publishes diagnostics for a document.
 	MethodLSPDiagnostics Method = "lsp/diagnostics"
 
@@ -207,15 +223,52 @@ var methodCatalog = []MethodInfo{
 		Params:    "syntaxFoldsParams",
 	},
 	{
+		Name:      MethodLSPStart,
+		Direction: DirectionClientToServer,
+		Summary:   "Start the Julia language server of a workspace.",
+		Params:    "lspStartParams",
+	},
+	{
+		Name:      MethodLSPStop,
+		Direction: DirectionClientToServer,
+		Summary:   "Stop the Julia language server of a workspace.",
+		Params:    "lspStopParams",
+	},
+	{
 		Name:      MethodLSPStatus,
 		Direction: DirectionClientToServer,
 		Summary:   "Report the state of the Julia language server.",
+		Params:    "lspStatusParams",
 	},
 	{
 		Name:      MethodLSPDiagnostics,
 		Direction: DirectionServerToClient,
 		Summary:   "Publish diagnostics for a document.",
-		Params:    "diagnosticsParams",
+		Params:    "lspDiagnosticsParams",
+	},
+	{
+		Name:      MethodLSPHover,
+		Direction: DirectionClientToServer,
+		Summary:   "Return the documentation of the symbol at a position.",
+		Params:    "lspHoverParams",
+	},
+	{
+		Name:      MethodLSPCompletion,
+		Direction: DirectionClientToServer,
+		Summary:   "Return the completion items at a position.",
+		Params:    "lspCompletionParams",
+	},
+	{
+		Name:      MethodLSPReferences,
+		Direction: DirectionClientToServer,
+		Summary:   "Return the references of the symbol at a position.",
+		Params:    "lspReferencesParams",
+	},
+	{
+		Name:      MethodLSPDefinition,
+		Direction: DirectionClientToServer,
+		Summary:   "Return the definition of the symbol at a position.",
+		Params:    "lspDefinitionParams",
 	},
 	{
 		Name:      MethodConsoleOpen,

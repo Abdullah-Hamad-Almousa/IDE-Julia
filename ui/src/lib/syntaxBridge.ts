@@ -1,7 +1,7 @@
 import './monacoEnv';
 import * as monaco from 'monaco-editor/editor/editor.api.js';
 import { backend } from './api';
-import type { DocumentView, SyntaxToken } from './types';
+import type { DocumentView, LSPCompletionItem, LSPDiagnostic, LSPHoverResult, SyntaxToken } from './types';
 
 const juliaTokenTypes = [
   'identifier', 'keyword', 'operator', 'number', 'boolean', 'string', 'stringDelimiter',
@@ -11,6 +11,7 @@ const juliaTokenTypes = [
 const tokenTypeIndex = new Map(juliaTokenTypes.map((kind, index) => [kind, index]));
 const refreshListeners = new Set<(event: void) => void>();
 const decorationIds = new WeakMap<monaco.editor.ITextModel, string[]>();
+const lspDiagnostics = new Map<string, LSPDiagnostic[]>();
 const utf8Encoder = new TextEncoder();
 const utf8Decoder = new TextDecoder();
 let juliaReady = false;
@@ -122,6 +123,59 @@ function registerJuliaLanguage(): void {
     ]
   });
   monaco.languages.setMonarchTokensProvider('julia', juliaMonarch);
+  monaco.languages.registerHoverProvider('julia', {
+    provideHover: async (model, position, token) => {
+      try {
+        const result: LSPHoverResult | null = await backend.lspHover(model.uri.toString(), position.lineNumber - 1, position.column - 1);
+        if (token.isCancellationRequested || !result) return null;
+        if (!result.hover) return null;
+        const contents = result.hover.contents.value;
+        const range = result.hover.range ? new monaco.Range(result.hover.range.start.line + 1, result.hover.range.start.character + 1, result.hover.range.end.line + 1, result.hover.range.end.character + 1) : undefined;
+        return { contents: [{ value: contents }], range };
+      } catch { return null; }
+    }
+  });
+  monaco.languages.registerCompletionItemProvider('julia', {
+    triggerCharacters: ['.', '@'],
+    provideCompletionItems: async (model, position, _context, token) => {
+      try {
+        const result = await backend.lspCompletion(model.uri.toString(), position.lineNumber - 1, position.column - 1);
+        if (token.isCancellationRequested) return { suggestions: [] };
+        return { suggestions: result.items.map((item: LSPCompletionItem) => ({
+          label: item.label,
+          kind: completionKind(item.kind),
+          detail: item.detail,
+          documentation: typeof item.documentation === 'string' ? item.documentation : undefined,
+          insertText: item.insertText || item.label,
+          range: new monaco.Range(position.lineNumber, position.column, position.lineNumber, position.column)
+        })) };
+      } catch { return { suggestions: [] }; }
+    }
+  });
+  monaco.languages.registerReferenceProvider('julia', {
+    provideReferences: async (model, position, context, token) => {
+      try {
+        const result = await backend.lspReferences(model.uri.toString(), position.lineNumber - 1, position.column - 1, context.includeDeclaration);
+        if (token.isCancellationRequested) return [];
+        return result.locations.map((location) => ({
+          uri: monaco.Uri.parse(location.uri),
+          range: new monaco.Range(location.range.start.line + 1, location.range.start.character + 1, location.range.end.line + 1, location.range.end.character + 1)
+        }));
+      } catch { return []; }
+    }
+  });
+  monaco.languages.registerDefinitionProvider('julia', {
+    provideDefinition: async (model, position, token) => {
+      try {
+        const result = await backend.lspDefinition(model.uri.toString(), position.lineNumber - 1, position.column - 1);
+        if (token.isCancellationRequested) return [];
+        return result.locations.map((location) => ({
+          uri: monaco.Uri.parse(location.uri),
+          range: new monaco.Range(location.range.start.line + 1, location.range.start.character + 1, location.range.end.line + 1, location.range.end.character + 1)
+        }));
+      } catch { return []; }
+    }
+  });
   monaco.editor.defineTheme('jide-dark', {
     base: 'vs-dark',
     inherit: true,
@@ -165,7 +219,7 @@ function registerJuliaLanguage(): void {
           }
         })));
         decorationIds.set(model, newDecorations);
-        const markers = result.diagnostics.map((diagnostic) => {
+        const syntaxMarkers = result.diagnostics.map((diagnostic) => {
           const startLine = diagnostic.range.start.line + 1;
           const endLine = diagnostic.range.end.line + 1;
           const startText = model.getLineContent(startLine);
@@ -183,7 +237,21 @@ function registerJuliaLanguage(): void {
             )
           };
         });
-        monaco.editor.setModelMarkers(model, 'jide-syntax', markers);
+        const serverMarkers = (lspDiagnostics.get(model.uri.toString()) ?? []).map((diagnostic) => {
+          const startLine = diagnostic.range.start.line + 1;
+          const endLine = diagnostic.range.end.line + 1;
+          return {
+            severity: diagnostic.severity === 1 ? monaco.MarkerSeverity.Error : diagnostic.severity === 2 ? monaco.MarkerSeverity.Warning : diagnostic.severity === 3 ? monaco.MarkerSeverity.Info : monaco.MarkerSeverity.Hint,
+            message: diagnostic.message,
+            source: diagnostic.source ?? 'LanguageServer.jl',
+            startLineNumber: startLine,
+            startColumn: diagnostic.range.start.character + 1,
+            endLineNumber: endLine,
+            endColumn: Math.max(diagnostic.range.end.character + 1, diagnostic.range.start.character + 2)
+          };
+        });
+        monaco.editor.setModelMarkers(model, 'jide-syntax', syntaxMarkers);
+        monaco.editor.setModelMarkers(model, 'jide-lsp', serverMarkers);
         return { data, resultId: String(model.getVersionId()) };
       } catch {
         return { data: new Uint32Array() };
@@ -191,6 +259,27 @@ function registerJuliaLanguage(): void {
     },
     releaseDocumentSemanticTokens: () => undefined
   });
+}
+
+export function setLSPDiagnostics(uri: string, diagnostics: LSPDiagnostic[]): void {
+  lspDiagnostics.set(uri, diagnostics);
+  const model = monaco.editor.getModel(monaco.Uri.parse(uri));
+  if (!model) return;
+  const markers = diagnostics.map((diagnostic) => ({
+    severity: diagnostic.severity === 1 ? monaco.MarkerSeverity.Error : diagnostic.severity === 2 ? monaco.MarkerSeverity.Warning : diagnostic.severity === 3 ? monaco.MarkerSeverity.Info : monaco.MarkerSeverity.Hint,
+    message: diagnostic.message,
+    source: diagnostic.source ?? 'LanguageServer.jl',
+    startLineNumber: diagnostic.range.start.line + 1,
+    startColumn: diagnostic.range.start.character + 1,
+    endLineNumber: diagnostic.range.end.line + 1,
+    endColumn: Math.max(diagnostic.range.end.character + 1, diagnostic.range.start.character + 2)
+  }));
+  monaco.editor.setModelMarkers(model, 'jide-lsp', markers);
+}
+
+function completionKind(kind?: number): monaco.languages.CompletionItemKind {
+  const map = [monaco.languages.CompletionItemKind.Text, monaco.languages.CompletionItemKind.Text, monaco.languages.CompletionItemKind.Method, monaco.languages.CompletionItemKind.Function, monaco.languages.CompletionItemKind.Constructor, monaco.languages.CompletionItemKind.Field, monaco.languages.CompletionItemKind.Variable, monaco.languages.CompletionItemKind.Class, monaco.languages.CompletionItemKind.Interface, monaco.languages.CompletionItemKind.Module, monaco.languages.CompletionItemKind.Property, monaco.languages.CompletionItemKind.Unit, monaco.languages.CompletionItemKind.Value, monaco.languages.CompletionItemKind.Enum, monaco.languages.CompletionItemKind.Keyword, monaco.languages.CompletionItemKind.Snippet, monaco.languages.CompletionItemKind.Color, monaco.languages.CompletionItemKind.File, monaco.languages.CompletionItemKind.Reference, monaco.languages.CompletionItemKind.Folder, monaco.languages.CompletionItemKind.EnumMember, monaco.languages.CompletionItemKind.Constant, monaco.languages.CompletionItemKind.Struct, monaco.languages.CompletionItemKind.Event, monaco.languages.CompletionItemKind.Operator, monaco.languages.CompletionItemKind.TypeParameter];
+  return map[kind ?? 1] ?? monaco.languages.CompletionItemKind.Text;
 }
 
 function buildTokenSpans(model: monaco.editor.ITextModel, tokens: SyntaxToken[]): TokenSpan[] {

@@ -103,8 +103,14 @@ calls the shell, `bidirectional`) and the name of its parameter object.
 | `index/symbols` | client → server | symbols of the current document buffer |
 | `syntax/highlights` | client → server | Julia highlighting tokens and parser diagnostics |
 | `syntax/folds` | client → server | foldable Julia source ranges and parser diagnostics |
+| `lsp/start` | client → server | start the Julia language server of a workspace |
+| `lsp/stop` | client → server | stop the Julia language server of a workspace |
 | `lsp/status` | client → server | state of the Julia language server |
 | `lsp/diagnostics` | server → client | publish diagnostics |
+| `lsp/hover` | client → server | hover information at a UTF-16 document position |
+| `lsp/completion` | client → server | completion items at a UTF-16 document position |
+| `lsp/references` | client → server | source references reported by LanguageServer.jl |
+| `lsp/definition` | client → server | source definition reported by LanguageServer.jl |
 | `console/open` | client → server | open a REPL session |
 | `console/input` | client → server | send input to a REPL session |
 | `console/output` | server → client | publish REPL output |
@@ -205,6 +211,60 @@ line and column positions are zero-based, matching Tree-sitter coordinates.
 Malformed or incomplete source still produces syntax output plus diagnostics
 for error and missing nodes. The Go source types and method catalog are the
 source of truth for the payloads and their JSON Schema definitions.
+
+### Julia language-server surface
+
+The language server is a separate Julia child process selected through Julia or
+juliaup's stable channel. The engine requires Julia 1.10 or newer and creates a
+LanguageServer.jl package environment in the per-user jide configuration area,
+installing the package there without modifying the workspace manifest.
+It publishes `lsp/status` and streams only the diagnostics the language server
+actually publishes; the editor does not assume every typo or undefined name is
+diagnosed. LSP positions are zero-based UTF-16 code-unit columns as required by
+the LSP specification; they are distinct from the UTF-8 byte columns used by
+Tree-sitter syntax methods.
+
+The desktop UI currently consumes the engine's in-process Wails bridge because
+`cmd/jided` does not yet implement the protocol transport or dispatcher. The
+method catalog and schema define the protocol contract for a future daemon
+connection.
+
+### The language-server payloads
+
+The `lsp` namespace describes the semantic analysis of a document. The
+positions of the requests are zero based and their column counts UTF-16 code
+units, the unit of the language server protocol; they differ from the UTF-8
+byte columns of the syntax methods.
+
+| Method | Parameters | Result |
+|---|---|---|
+| `lsp/start` | `lspStartParams` | `lspStartResult` |
+| `lsp/stop` | `lspStopParams` | `lspStopResult` |
+| `lsp/status` | `lspStatusParams` | `lspStatusResult` |
+| `lsp/hover` | `lspHoverParams` | `lspHoverResult` |
+| `lsp/completion` | `lspCompletionParams` | `lspCompletionResult` |
+| `lsp/references` | `lspReferencesParams` | `lspReferencesResult` |
+| `lsp/definition` | `lspDefinitionParams` | `lspDefinitionResult` |
+| `lsp/diagnostics` | `lspDiagnosticsParams` | — |
+
+`lsp/status` reports the lifecycle state of the server: `stopped`,
+`starting`, `running` or `restarting`. The result holds the version and the
+juliaup channel of the Julia runtime that runs the server, the number of the
+restarts since the last successful start and the description of the last
+failure. The shell shows that state in its status bar.
+
+`lsp/hover` answers with the documentation of the symbol under the cursor.
+The `contents` member holds the text and its format, `markdown` or
+`plaintext`; the member is absent when the server has nothing to say about
+the position. `lsp/completion` answers with the items that the server
+proposes and with the flag that tells the shell to ask again while the user
+types. `lsp/references` and `lsp/definition` answer with the source
+locations that the server reports.
+
+The engine restarts the server when it dies, with a backoff that starts at
+one second and doubles every attempt, up to five attempts. The state of the
+server is `restarting` while the engine waits. The documents that the editor
+has open are opened again in the restarted server.
 
 ## JSON Schema
 

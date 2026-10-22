@@ -8,8 +8,10 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 	"unicode/utf8"
 
+	"github.com/jide-dev/jide/internal/lsp"
 	"github.com/jide-dev/jide/internal/syntax"
 	"github.com/jide-dev/jide/internal/vfs"
 	"github.com/jide-dev/jide/internal/workspace"
@@ -36,9 +38,18 @@ var (
 // virtual-file, and syntax services. It is a temporary in-process adapter
 // until cmd/jided serves these operations over the protocol.
 type App struct {
-	mu     sync.Mutex
-	ctx    context.Context
-	active *workspaceSession
+	mu           sync.Mutex
+	ctx          context.Context
+	ctxCancel    context.CancelFunc
+	active       *workspaceSession
+	lsp          *lsp.Client
+	diagnostics  map[string][]jide.LSPDiagnostic
+	lspDocuments map[string]openLSPDocument
+}
+
+type openLSPDocument struct {
+	text    string
+	version int
 }
 
 type workspaceSession struct {
@@ -90,7 +101,7 @@ type DocumentView struct {
 // NewApp constructs the UI bridge. The returned app is ready for headless
 // workspace and document tests before Wails supplies its runtime context.
 func NewApp() *App {
-	return &App{}
+	return &App{diagnostics: make(map[string][]jide.LSPDiagnostic), lspDocuments: make(map[string]openLSPDocument)}
 }
 
 // startup stores the Wails context used by native dialogs.
@@ -98,6 +109,24 @@ func (a *App) startup(ctx context.Context) {
 	a.mu.Lock()
 	a.ctx = ctx
 	a.mu.Unlock()
+}
+
+// shutdown stops the workspace language server before the desktop exits.
+func (a *App) shutdown(_ context.Context) {
+	a.mu.Lock()
+	manager := a.lsp
+	cancel := a.ctxCancel
+	a.lsp = nil
+	a.ctxCancel = nil
+	a.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	if manager != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_ = manager.Stop(ctx)
+	}
 }
 
 // OpenWorkspaceDialog asks the operating system for a project folder.
@@ -149,11 +178,150 @@ func (a *App) OpenWorkspace(root string) (*WorkspaceView, error) {
 	}
 
 	a.mu.Lock()
+	oldLSP := a.lsp
+	oldCancel := a.ctxCancel
+	a.lsp = nil
+	a.ctxCancel = nil
+	a.diagnostics = make(map[string][]jide.LSPDiagnostic)
+	a.lspDocuments = make(map[string]openLSPDocument)
 	a.active = session
 	view := makeWorkspaceView(session, tree)
+	desktopContext := a.ctx
 	a.mu.Unlock()
+	if oldLSP != nil {
+		if oldCancel != nil {
+			oldCancel()
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		_ = oldLSP.Stop(ctx)
+		cancel()
+	}
+	if opened.ProjectPath() != "" && desktopContext != nil {
+		lspContext, cancelLSP := context.WithCancel(context.Background())
+		var client *lsp.Client
+		client = lsp.New(lsp.Options{
+			ProjectPath: opened.ProjectPath(), RootURI: lsp.FileURI(root),
+			OnDiagnostics: func(uri string, diagnostics []jide.LSPDiagnostic) {
+				params := jide.LSPDiagnosticsParams{URI: uri, Diagnostics: diagnostics}
+				a.mu.Lock()
+				a.diagnostics[uri] = append([]jide.LSPDiagnostic(nil), diagnostics...)
+				ctx := a.ctx
+				a.mu.Unlock()
+				if ctx != nil {
+					wailsruntime.EventsEmit(ctx, "lsp:diagnostics", params)
+				}
+			},
+			OnStateChange: func(state lsp.State) {
+				a.mu.Lock()
+				ctx := a.ctx
+				a.mu.Unlock()
+				if ctx != nil {
+					wailsruntime.EventsEmit(ctx, "lsp:status", string(state))
+				}
+				if state != lsp.StateRunning || client.Status().RestartAttempts != 0 {
+					return
+				}
+				go func() {
+					a.mu.Lock()
+					defer a.mu.Unlock()
+					if a.lsp != client {
+						return
+					}
+					for uri, document := range a.lspDocuments {
+						_ = client.DidOpen(context.Background(), uri, "julia", document.text, document.version)
+					}
+				}()
+			},
+		})
+		a.mu.Lock()
+		a.lsp = client
+		a.ctxCancel = cancelLSP
+		a.mu.Unlock()
+		go func() {
+			if err := client.Start(lspContext); err != nil {
+				a.mu.Lock()
+				ctx := a.ctx
+				a.mu.Unlock()
+				if ctx != nil {
+					wailsruntime.EventsEmit(ctx, "lsp:error", err.Error())
+				}
+				return
+			}
+		}()
+	}
 	return &view, nil
 }
+
+// GetLSPStatusView returns language-server state to the frontend.
+func (a *App) GetLSPStatusView() map[string]any {
+	manager := a.languageServer()
+	if manager == nil {
+		return map[string]any{"state": "stopped", "message": "No active Julia workspace"}
+	}
+	status := manager.Status()
+	view := map[string]any{"state": status.State}
+	if status.JuliaVersion != "" {
+		view["julia"] = status.JuliaVersion
+	}
+	if status.LastError != "" {
+		view["message"] = status.LastError
+	}
+	return view
+}
+
+// LSPHover requests hover information from LanguageServer.jl.
+func (a *App) LSPHover(uri string, line, character int) (*jide.LSPHoverResult, error) {
+	manager := a.languageServer()
+	if manager == nil {
+		return nil, errors.New("jide: language server is unavailable")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	hover, err := manager.Hover(ctx, uri, line, character)
+	if err != nil {
+		return nil, err
+	}
+	return &jide.LSPHoverResult{URI: uri, Hover: hover}, nil
+}
+
+// LSPCompletion requests completion candidates from LanguageServer.jl.
+func (a *App) LSPCompletion(uri string, line, character int) (jide.LSPCompletionResult, error) {
+	manager := a.languageServer()
+	if manager == nil {
+		return jide.LSPCompletionResult{}, errors.New("jide: language server is unavailable")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	result, err := manager.Completion(ctx, uri, line, character)
+	result.URI = uri
+	return result, err
+}
+
+// LSPReferences requests source references from LanguageServer.jl.
+func (a *App) LSPReferences(uri string, line, character int, includeDeclaration bool) (jide.LSPReferencesResult, error) {
+	manager := a.languageServer()
+	if manager == nil {
+		return jide.LSPReferencesResult{}, errors.New("jide: language server is unavailable")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	locations, err := manager.References(ctx, uri, line, character, includeDeclaration)
+	return jide.LSPReferencesResult{URI: uri, Locations: locations}, err
+}
+
+// LSPDefinition asks LanguageServer.jl for symbol definitions.
+func (a *App) LSPDefinition(uri string, line, character int) (jide.LSPDefinitionResult, error) {
+	manager := a.languageServer()
+	if manager == nil {
+		return jide.LSPDefinitionResult{}, errors.New("jide: language server is unavailable")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	locations, err := manager.Definition(ctx, uri, line, character)
+	return jide.LSPDefinitionResult{URI: uri, Locations: locations}, err
+}
+
+func (a *App) languageServer() *lsp.Client { a.mu.Lock(); defer a.mu.Unlock(); return a.lsp }
 
 // GetWorkspace returns the current workspace view, or nil when none is open.
 func (a *App) GetWorkspace() (*WorkspaceView, error) {
@@ -217,7 +385,15 @@ func (a *App) OpenFile(path string) (*DocumentView, error) {
 	if err != nil {
 		return nil, fmt.Errorf("jide: read open file: %w", err)
 	}
-	return documentView(snapshot)
+	view, err := documentView(snapshot)
+	if err == nil && a.lsp != nil && strings.EqualFold(filepath.Ext(view.Path), ".jl") {
+		uri := pathToURI(view.Path)
+		a.lspDocuments[uri] = openLSPDocument{text: view.Text, version: int(view.Version)}
+		if a.lsp.State() == lsp.StateRunning {
+			_ = a.lsp.DidOpen(context.Background(), uri, "julia", view.Text, int(view.Version))
+		}
+	}
+	return view, err
 }
 
 // UpdateFile replaces the in-memory content of an open document and refreshes
@@ -256,7 +432,17 @@ func (a *App) UpdateFile(path, text string) (*DocumentView, error) {
 	if err != nil {
 		return nil, fmt.Errorf("jide: read updated file: %w", err)
 	}
-	return documentView(snapshot)
+	view, err := documentView(snapshot)
+	if err == nil && a.lsp != nil {
+		uri := pathToURI(view.Path)
+		if _, open := a.lspDocuments[uri]; open {
+			a.lspDocuments[uri] = openLSPDocument{text: view.Text, version: int(view.Version)}
+			if a.lsp.State() == lsp.StateRunning {
+				_ = a.lsp.DidChange(context.Background(), uri, int(view.Version), []jide.LSPTextChange{{Text: view.Text}})
+			}
+		}
+	}
+	return view, err
 }
 
 // SaveFile updates and saves a document to disk. The text argument is the
@@ -295,7 +481,18 @@ func (a *App) SaveFile(path, text string) (*DocumentView, error) {
 	if err != nil {
 		return nil, fmt.Errorf("jide: save file: %w", err)
 	}
-	return documentView(snapshot)
+	view, err := documentView(snapshot)
+	if err == nil && a.lsp != nil {
+		documentURI := pathToURI(view.Path)
+		if _, open := a.lspDocuments[documentURI]; open {
+			a.lspDocuments[documentURI] = openLSPDocument{text: view.Text, version: int(view.Version)}
+			if a.lsp.State() == lsp.StateRunning {
+				_ = a.lsp.DidChange(context.Background(), documentURI, int(view.Version), []jide.LSPTextChange{{Text: view.Text}})
+				_ = a.lsp.DidSave(context.Background(), documentURI, view.Text)
+			}
+		}
+	}
+	return view, err
 }
 
 // CloseFile drops a document from the virtual file store. A dirty buffer must
@@ -317,6 +514,10 @@ func (a *App) CloseFile(path string, discard bool) error {
 	if _, ok := session.store.Snapshot(absolute); !ok {
 		return nil
 	}
+	if a.lsp != nil {
+		_ = a.lsp.DidClose(context.Background(), pathToURI(absolute))
+	}
+	delete(a.lspDocuments, pathToURI(absolute))
 	return session.store.Close(absolute)
 }
 
@@ -389,6 +590,10 @@ func pathWithin(root, target string) bool {
 	return relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
 }
 
+func pathToURI(path string) string {
+	return lsp.FileURI(path)
+}
+
 func scanSession(session *workspaceSession) (*workspace.Tree, error) {
 	tree, err := session.workspace.Tree(workspace.ScanOptions{
 		MaxDepth: 12,
@@ -417,8 +622,8 @@ func makeWorkspaceView(session *workspaceSession, tree *workspace.Tree) Workspac
 		Entries:           make([]WorkspaceEntryView, 0, len(tree.Entries)),
 		Environments: []EnvironmentView{{
 			ID:      "default",
-			Name:    "Julia default",
-			Details: "Julia runtime discovery is part of WP4",
+			Name:    "Julia stable",
+			Details: "Selected from the installed juliaup runtime, when available",
 		}},
 	}
 	for _, entry := range tree.Entries {

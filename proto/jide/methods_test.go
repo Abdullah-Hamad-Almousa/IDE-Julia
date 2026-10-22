@@ -2,6 +2,7 @@ package jide
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -30,6 +31,52 @@ func TestMethodCatalogIsConsistent(t *testing.T) {
 		}
 		if info.Summary == "" {
 			t.Errorf("method %q has no summary", info.Name)
+		}
+	}
+}
+
+// TestLSPMethodsAreCatalogued checks that the methods of the language
+// server surface are part of the catalog.
+func TestLSPMethodsAreCatalogued(t *testing.T) {
+	for _, method := range []Method{
+		MethodLSPStart,
+		MethodLSPStop,
+		MethodLSPStatus,
+		MethodLSPDiagnostics,
+		MethodLSPHover,
+		MethodLSPCompletion,
+		MethodLSPReferences,
+		MethodLSPDefinition,
+	} {
+		if !method.IsKnown() {
+			t.Errorf("LSP method %q is not in catalog", method)
+		}
+		if err := method.Validate(); err != nil {
+			t.Errorf("LSP method %q does not follow the naming convention: %v", method, err)
+		}
+	}
+}
+
+// TestMethodCatalogReferencesTheLanguageServerPayloads checks that the
+// methods of the language server surface name a parameter object that the
+// module defines.
+func TestMethodCatalogReferencesTheLanguageServerPayloads(t *testing.T) {
+	known := map[string]bool{
+		"lspStartParams":       true,
+		"lspStopParams":        true,
+		"lspStatusParams":      true,
+		"lspDiagnosticsParams": true,
+		"lspHoverParams":       true,
+		"lspCompletionParams":  true,
+		"lspReferencesParams":  true,
+		"lspDefinitionParams":  true,
+	}
+	for _, info := range Methods() {
+		if !strings.HasPrefix(string(info.Name), "lsp/") {
+			continue
+		}
+		if !known[info.Params] {
+			t.Errorf("method %q refers to the unknown parameter object %q", info.Name, info.Params)
 		}
 	}
 }

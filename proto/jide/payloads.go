@@ -439,3 +439,317 @@ type SyntaxFoldsResult struct {
 	Folds       []SyntaxFoldRange  `json:"folds"`
 	Diagnostics []SyntaxDiagnostic `json:"diagnostics"`
 }
+
+// LSPState classifies the lifecycle state of the language server.
+type LSPState string
+
+const (
+	// LSPStateStopped means that no language server process runs.
+	LSPStateStopped LSPState = "stopped"
+	// LSPStateStarting means that the engine spawns the language server and
+	// performs the initialize handshake.
+	LSPStateStarting LSPState = "starting"
+	// LSPStateRunning means that the language server is initialized and
+	// answers the requests of the shell.
+	LSPStateRunning LSPState = "running"
+	// LSPStateRestarting means that the language server died and that the
+	// engine waits for the backoff delay before it spawns it again.
+	LSPStateRestarting LSPState = "restarting"
+)
+
+// LSPPosition is a zero-based source position of the language server.
+//
+// The character counts UTF-16 code units, the unit of the JavaScript string
+// type, so that the positions match the ones of the editor.
+type LSPPosition struct {
+	// Line is the zero-based line of the position.
+	Line int `json:"line"`
+	// Character is the zero-based column of the position.
+	Character int `json:"character"`
+}
+
+// LSPRange is a half-open source range of the language server.
+type LSPRange struct {
+	// Start is the first position of the range.
+	Start LSPPosition `json:"start"`
+	// End is the position behind the last position of the range.
+	End LSPPosition `json:"end"`
+}
+
+// LSPLocation is a range inside a document of the workspace.
+type LSPLocation struct {
+	// URI is the URI of the document.
+	URI string `json:"uri"`
+	// Range is the range inside the document.
+	Range LSPRange `json:"range"`
+}
+
+// LSPDiagnosticSeverity classifies a diagnostic of the language server.
+type LSPDiagnosticSeverity int
+
+const (
+	// LSPDiagnosticError marks an error.
+	LSPDiagnosticError LSPDiagnosticSeverity = 1
+	// LSPDiagnosticWarning marks a warning.
+	LSPDiagnosticWarning LSPDiagnosticSeverity = 2
+	// LSPDiagnosticInformation marks an information.
+	LSPDiagnosticInformation LSPDiagnosticSeverity = 3
+	// LSPDiagnosticHint marks a hint.
+	LSPDiagnosticHint LSPDiagnosticSeverity = 4
+)
+
+// LSPDiagnostic is a problem that the language server reports for a
+// document.
+type LSPDiagnostic struct {
+	// Range is the range of the document that holds the problem.
+	Range LSPRange `json:"range"`
+	// Severity classifies the problem.
+	Severity LSPDiagnosticSeverity `json:"severity,omitempty"`
+	// Code is the code of the problem. It is empty when the server does not
+	// report one.
+	Code string `json:"code,omitempty"`
+	// Source is the name of the tool that reported the problem.
+	Source string `json:"source,omitempty"`
+	// Message describes the problem.
+	Message string `json:"message"`
+}
+
+// LSPMarkupKind classifies the format of a markup text.
+type LSPMarkupKind string
+
+const (
+	// LSPMarkupPlainText marks unformatted text.
+	LSPMarkupPlainText LSPMarkupKind = "plaintext"
+	// LSPMarkupMarkdown marks markdown text.
+	LSPMarkupMarkdown LSPMarkupKind = "markdown"
+)
+
+// LSPMarkupContent is a formatted text with its kind.
+type LSPMarkupContent struct {
+	// Kind classifies the format of the value.
+	Kind LSPMarkupKind `json:"kind"`
+	// Value is the text itself.
+	Value string `json:"value"`
+}
+
+// LSPHover is the answer of a hover request.
+type LSPHover struct {
+	// Contents is the documentation of the symbol under the cursor.
+	Contents LSPMarkupContent `json:"contents"`
+	// Range is the range of the symbol under the cursor. It is absent when
+	// the server does not report one.
+	Range *LSPRange `json:"range,omitempty"`
+}
+
+// LSPCompletionItemKind classifies a completion item. The values are the
+// ones of the language server protocol.
+type LSPCompletionItemKind int
+
+const (
+	LSPCompletionText          LSPCompletionItemKind = 1
+	LSPCompletionMethod        LSPCompletionItemKind = 2
+	LSPCompletionFunction      LSPCompletionItemKind = 3
+	LSPCompletionConstructor   LSPCompletionItemKind = 4
+	LSPCompletionField         LSPCompletionItemKind = 5
+	LSPCompletionVariable      LSPCompletionItemKind = 6
+	LSPCompletionClass         LSPCompletionItemKind = 7
+	LSPCompletionInterface     LSPCompletionItemKind = 8
+	LSPCompletionModule        LSPCompletionItemKind = 9
+	LSPCompletionProperty      LSPCompletionItemKind = 10
+	LSPCompletionUnit          LSPCompletionItemKind = 11
+	LSPCompletionValue         LSPCompletionItemKind = 12
+	LSPCompletionEnum          LSPCompletionItemKind = 13
+	LSPCompletionKeyword       LSPCompletionItemKind = 14
+	LSPCompletionSnippet       LSPCompletionItemKind = 15
+	LSPCompletionColor         LSPCompletionItemKind = 16
+	LSPCompletionFile          LSPCompletionItemKind = 17
+	LSPCompletionReference     LSPCompletionItemKind = 18
+	LSPCompletionFolder        LSPCompletionItemKind = 19
+	LSPCompletionEnumMember    LSPCompletionItemKind = 20
+	LSPCompletionConstant      LSPCompletionItemKind = 21
+	LSPCompletionStruct        LSPCompletionItemKind = 22
+	LSPCompletionEvent         LSPCompletionItemKind = 23
+	LSPCompletionOperator      LSPCompletionItemKind = 24
+	LSPCompletionTypeParameter LSPCompletionItemKind = 25
+)
+
+// LSPCompletionItem is one entry of a completion list.
+type LSPCompletionItem struct {
+	// Label is the text that the editor shows and inserts.
+	Label string `json:"label"`
+	// Kind classifies the item.
+	Kind LSPCompletionItemKind `json:"kind,omitempty"`
+	// Detail is the short description of the item.
+	Detail string `json:"detail,omitempty"`
+	// Documentation is the long description of the item.
+	Documentation string `json:"documentation,omitempty"`
+	// SortText orders the item in the list.
+	SortText string `json:"sortText,omitempty"`
+	// FilterText filters the item while the user types.
+	FilterText string `json:"filterText,omitempty"`
+	// InsertText is the text that the editor inserts when it differs from
+	// the label.
+	InsertText string `json:"insertText,omitempty"`
+}
+
+// LSPTextChange is one change of a document.
+//
+// A change without a range replaces the whole document, a change with a
+// range replaces the text inside the range.
+type LSPTextChange struct {
+	// Range is the range that the change replaces. It is absent when the
+	// change replaces the whole document.
+	Range *LSPRange `json:"range,omitempty"`
+	// Text is the new text.
+	Text string `json:"text"`
+}
+
+// LSPStartParams are the parameters of MethodLSPStart.
+type LSPStartParams struct {
+	// WorkspaceID identifies the workspace whose language server starts.
+	WorkspaceID string `json:"workspaceId"`
+	// RootURI is the root folder of the workspace, as an URI. It is
+	// optional: the engine uses the root of the workspace when it is
+	// absent.
+	RootURI string `json:"rootUri,omitempty"`
+	// ProjectPath is the path of the Julia project of the workspace. It
+	// selects the environment of the language server.
+	ProjectPath string `json:"projectPath,omitempty"`
+}
+
+// LSPStartResult is the result of MethodLSPStart.
+type LSPStartResult struct {
+	// State is the state of the language server after the request.
+	State LSPState `json:"state"`
+	// JuliaVersion is the version of the Julia runtime that runs the
+	// server.
+	JuliaVersion string `json:"juliaVersion,omitempty"`
+	// JuliaChannel is the juliaup channel of the runtime.
+	JuliaChannel string `json:"juliaChannel,omitempty"`
+	// Executable is the path of the Julia executable.
+	Executable string `json:"executable,omitempty"`
+}
+
+// LSPStopParams are the parameters of MethodLSPStop.
+type LSPStopParams struct {
+	// WorkspaceID identifies the workspace whose language server stops.
+	WorkspaceID string `json:"workspaceId"`
+}
+
+// LSPStopResult is the result of MethodLSPStop.
+type LSPStopResult struct {
+	// State is the state of the language server after the request.
+	State LSPState `json:"state"`
+}
+
+// LSPStatusParams are the parameters of MethodLSPStatus.
+type LSPStatusParams struct {
+	// WorkspaceID identifies the workspace whose language server is asked
+	// for.
+	WorkspaceID string `json:"workspaceId"`
+}
+
+// LSPStatusResult is the result of MethodLSPStatus.
+type LSPStatusResult struct {
+	// State is the lifecycle state of the language server.
+	State LSPState `json:"state"`
+	// JuliaVersion is the version of the Julia runtime that runs the
+	// server.
+	JuliaVersion string `json:"juliaVersion,omitempty"`
+	// JuliaChannel is the juliaup channel of the runtime.
+	JuliaChannel string `json:"juliaChannel,omitempty"`
+	// Executable is the path of the Julia executable.
+	Executable string `json:"executable,omitempty"`
+	// RestartAttempts is the number of restarts since the last successful
+	// start.
+	RestartAttempts int `json:"restartAttempts,omitempty"`
+	// LastError describes the last failure of the language server.
+	LastError string `json:"lastError,omitempty"`
+}
+
+// LSPHoverParams are the parameters of MethodLSPHover.
+type LSPHoverParams struct {
+	// URI is the document URI.
+	URI string `json:"uri"`
+	// Line is the zero-based line of the position.
+	Line int `json:"line"`
+	// Character is the zero-based column of the position.
+	Character int `json:"character"`
+}
+
+// LSPHoverResult is the result of MethodLSPHover.
+type LSPHoverResult struct {
+	// URI is the document URI.
+	URI string `json:"uri"`
+	// Hover holds the documentation of the symbol under the cursor. It is
+	// absent when the server has nothing to say about the position.
+	Hover *LSPHover `json:"hover,omitempty"`
+}
+
+// LSPCompletionParams are the parameters of MethodLSPCompletion.
+type LSPCompletionParams struct {
+	// URI is the document URI.
+	URI string `json:"uri"`
+	// Line is the zero-based line of the position.
+	Line int `json:"line"`
+	// Character is the zero-based column of the position.
+	Character int `json:"character"`
+}
+
+// LSPCompletionResult is the result of MethodLSPCompletion.
+type LSPCompletionResult struct {
+	// URI is the document URI.
+	URI string `json:"uri"`
+	// IsIncomplete reports that the list is only a prefix of the real one
+	// and that the shell should ask again while the user types.
+	IsIncomplete bool `json:"isIncomplete,omitempty"`
+	// Items holds the completion items.
+	Items []LSPCompletionItem `json:"items"`
+}
+
+// LSPReferencesParams are the parameters of MethodLSPReferences.
+type LSPReferencesParams struct {
+	// URI is the document URI.
+	URI string `json:"uri"`
+	// Line is the zero-based line of the position.
+	Line int `json:"line"`
+	// Character is the zero-based column of the position.
+	Character int `json:"character"`
+	// IncludeDeclaration asks for the declaration of the symbol too.
+	IncludeDeclaration bool `json:"includeDeclaration,omitempty"`
+}
+
+// LSPReferencesResult is the result of MethodLSPReferences.
+type LSPReferencesResult struct {
+	// URI is the document URI.
+	URI string `json:"uri"`
+	// Locations holds the references.
+	Locations []LSPLocation `json:"locations"`
+}
+
+// LSPDefinitionParams are the parameters of MethodLSPDefinition.
+type LSPDefinitionParams struct {
+	// URI is the document URI.
+	URI string `json:"uri"`
+	// Line is the zero-based line of the position.
+	Line int `json:"line"`
+	// Character is the zero-based column of the position.
+	Character int `json:"character"`
+}
+
+// LSPDefinitionResult is the result of MethodLSPDefinition.
+type LSPDefinitionResult struct {
+	// URI is the document URI.
+	URI string `json:"uri"`
+	// Locations holds the definitions.
+	Locations []LSPLocation `json:"locations"`
+}
+
+// LSPDiagnosticsParams are the parameters of MethodLSPDiagnostics.
+type LSPDiagnosticsParams struct {
+	// URI is the document URI.
+	URI string `json:"uri"`
+	// Diagnostics holds the problems that the language server reports for
+	// the document.
+	Diagnostics []LSPDiagnostic `json:"diagnostics"`
+}

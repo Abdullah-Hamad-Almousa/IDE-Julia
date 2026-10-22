@@ -1,4 +1,4 @@
-import type { DocumentView, SyntaxHighlightsResult, WorkspaceView } from './types';
+import type { DocumentView, LSPCompletionResult, LSPDefinitionResult, LSPHoverResult, LSPReferencesResult, LSPStatusView, SyntaxHighlightsResult, WorkspaceView } from './types';
 
 interface WailsApp {
   OpenWorkspaceDialog(): Promise<WorkspaceView | null>;
@@ -11,12 +11,18 @@ interface WailsApp {
   SaveFile(path: string, text: string): Promise<DocumentView>;
   CloseFile(path: string, discard: boolean): Promise<void>;
   GetSyntaxHighlights(uri: string, text: string): Promise<SyntaxHighlightsResult>;
+  GetLSPStatusView(): Promise<LSPStatusView>;
+  LSPHover(uri: string, line: number, character: number): Promise<LSPHoverResult | null>;
+  LSPCompletion(uri: string, line: number, character: number): Promise<LSPCompletionResult>;
+  LSPReferences(uri: string, line: number, character: number, includeDeclaration: boolean): Promise<LSPReferencesResult>;
+  LSPDefinition(uri: string, line: number, character: number): Promise<LSPDefinitionResult>;
 }
 
 interface WailsRuntime {
   WindowMinimise(): void;
   WindowToggleMaximise(): void;
   Quit(): void;
+  EventsOn(name: string, callback: (...data: unknown[]) => void): () => void;
 }
 
 declare global {
@@ -48,11 +54,20 @@ export const backend = {
   updateFile: (path: string, text: string) => bridge().UpdateFile(path, text),
   saveFile: (path: string, text: string) => bridge().SaveFile(path, text),
   closeFile: (path: string, discard: boolean) => bridge().CloseFile(path, discard),
-  syntaxHighlights: (uri: string, text: string) => bridge().GetSyntaxHighlights(uri, text)
+  syntaxHighlights: (uri: string, text: string) => bridge().GetSyntaxHighlights(uri, text),
+  lspStatus: () => bridge().GetLSPStatusView(),
+  lspHover: (uri: string, line: number, character: number) => bridge().LSPHover(uri, line, character),
+  lspCompletion: (uri: string, line: number, character: number) => bridge().LSPCompletion(uri, line, character),
+  lspReferences: (uri: string, line: number, character: number, includeDeclaration: boolean) => bridge().LSPReferences(uri, line, character, includeDeclaration),
+  lspDefinition: (uri: string, line: number, character: number) => bridge().LSPDefinition(uri, line, character)
 };
 
 export const windowControls = {
   minimize: () => window.runtime?.WindowMinimise(),
   toggleMaximize: () => window.runtime?.WindowToggleMaximise(),
   quit: () => window.runtime?.Quit()
+};
+
+export const runtimeEvents = {
+  on: (name: string, callback: (...data: unknown[]) => void) => window.runtime?.EventsOn(name, callback)
 };

@@ -31,6 +31,7 @@ func launchDesktop() error {
 		BackgroundColour: options.NewRGBA(12, 16, 24, 255),
 		AssetServer:      &assetserver.Options{Assets: assets},
 		OnStartup:        app.startup,
+		OnShutdown:       app.shutdown,
 		Bind:             []interface{}{app},
 	}); err != nil {
 		return fmt.Errorf("jide: run desktop: %w", err)

@@ -3,6 +3,8 @@ go 1.24
 use (
 	./cmd/jide
 	./cmd/jided
+	./internal/jlproc
+	./internal/lsp
 	./internal/syntax
 	./internal/vfs
 	./internal/workspace

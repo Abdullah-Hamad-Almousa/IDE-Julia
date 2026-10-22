@@ -63,6 +63,22 @@ export interface DocumentView {
   highlights: SyntaxHighlightsResult;
 }
 
+export interface LSPPosition { line: number; character: number }
+export interface LSPRange { start: LSPPosition; end: LSPPosition }
+export interface LSPDiagnostic {
+  range: LSPRange;
+  severity?: number;
+  source?: string;
+  message: string;
+}
+export interface LSPStatusView { state: string; julia?: string; message?: string }
+export interface LSPHoverResult { uri: string; hover?: { contents: { kind: string; value: string }; range?: LSPRange } }
+export interface LSPCompletionItem { label: string; kind?: number; detail?: string; documentation?: unknown; insertText?: string }
+export interface LSPCompletionResult { uri: string; isIncomplete?: boolean; items: LSPCompletionItem[] }
+export interface LSPLocation { uri: string; range: LSPRange }
+export interface LSPReferencesResult { locations: LSPLocation[] }
+export interface LSPDefinitionResult { locations: LSPLocation[] }
+
 export interface FileNode {
   name: string;
   path: string;

@@ -12,7 +12,9 @@
     workspaceStore
   } from './lib/stores';
   import { windowControls } from './lib/api';
-  import type { DocumentView, FileNode, WorkspaceView } from './lib/types';
+  import { runtimeEvents } from './lib/api';
+  import { setLSPDiagnostics } from './lib/syntaxBridge';
+  import type { DocumentView, FileNode, LSPDiagnostic, LSPStatusView, WorkspaceView } from './lib/types';
 
   let busy = false;
   let errorMessage = '';
@@ -21,6 +23,11 @@
   let cursorColumn = 1;
   let updateTimers = new Map<string, ReturnType<typeof setTimeout>>();
   let updateQueues = new Map<string, Promise<void>>();
+  let lspStatus: LSPStatusView = { state: 'stopped' };
+  let statusTimer: ReturnType<typeof setInterval> | undefined;
+  let stopDiagnostics: (() => void) | undefined;
+  let stopLSPStatus: (() => void) | undefined;
+  let stopLSPError: (() => void) | undefined;
 
   $: fileTree = buildFileTree($workspaceStore?.entries ?? []);
   $: filteredTree = filterNodes(fileTree, filterText.trim().toLowerCase());
@@ -32,6 +39,18 @@
   onMount(async () => {
     try {
       workspaceStore.set(await backend.getWorkspace());
+      await refreshLSPStatus();
+      statusTimer = setInterval(() => void refreshLSPStatus(), 2000);
+      stopDiagnostics = runtimeEvents.on('lsp:diagnostics', (payload) => {
+        const params = payload as { uri: string; diagnostics: LSPDiagnostic[] };
+        setLSPDiagnostics(params.uri, params.diagnostics ?? []);
+      });
+      stopLSPStatus = runtimeEvents.on('lsp:status', (payload) => {
+        lspStatus = { ...lspStatus, state: String(payload) };
+      });
+      stopLSPError = runtimeEvents.on('lsp:error', (payload) => {
+        lspStatus = { ...lspStatus, state: 'stopped', message: String(payload) };
+      });
     } catch (error) {
       showError(error);
     }
@@ -39,6 +58,10 @@
 
   onDestroy(() => {
     for (const timer of updateTimers.values()) clearTimeout(timer);
+    if (statusTimer) clearInterval(statusTimer);
+    stopDiagnostics?.();
+    stopLSPStatus?.();
+    stopLSPError?.();
   });
 
   async function openWorkspace(): Promise<void> {
@@ -180,6 +203,7 @@
     activeDocumentPathStore.set(null);
     filterText = '';
     errorMessage = '';
+    void refreshLSPStatus();
   }
 
   async function selectEnvironment(event: Event): Promise<void> {
@@ -189,6 +213,11 @@
     } catch (error) {
       showError(error);
     }
+  }
+
+  async function refreshLSPStatus(): Promise<void> {
+    try { lspStatus = await backend.lspStatus(); }
+    catch { lspStatus = { state: 'unavailable' }; }
   }
 
   function handleGlobalKeydown(event: KeyboardEvent): void {
@@ -420,7 +449,7 @@
 
   <footer class="statusbar">
     <div class="status-left">
-      <span class="status-indicator"><span></span> Ready</span>
+      <span class="status-indicator" title={lspStatus.message ?? (lspStatus.julia ? `Julia ${lspStatus.julia}` : 'Julia language server')}><span></span> {lspStatus.state === 'running' ? 'Julia LS' : lspStatus.state}</span>
       {#if $workspaceStore}
         <span class="status-path" title={$workspaceStore.root}>{$workspaceStore.root}</span>
       {/if}

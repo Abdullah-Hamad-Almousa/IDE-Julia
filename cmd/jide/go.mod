@@ -4,6 +4,7 @@ go 1.24
 
 require (
 	github.com/jide-dev/jide/internal/syntax v0.0.0
+	github.com/jide-dev/jide/internal/lsp v0.0.0
 	github.com/jide-dev/jide/internal/vfs v0.0.0
 	github.com/jide-dev/jide/internal/workspace v0.0.0
 	github.com/jide-dev/jide/proto/jide v0.0.0
@@ -46,6 +47,8 @@ require (
 )
 
 replace github.com/jide-dev/jide/internal/syntax => ../../internal/syntax
+
+replace github.com/jide-dev/jide/internal/lsp => ../../internal/lsp
 
 replace github.com/jide-dev/jide/internal/vfs => ../../internal/vfs
 

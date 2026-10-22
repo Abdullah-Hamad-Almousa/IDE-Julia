@@ -84,7 +84,16 @@ func TestJSONSchemaDefsContainEnvelope(t *testing.T) {
 	if !ok {
 		t.Fatalf("$defs is %T, want object", doc["$defs"])
 	}
-	for _, key := range []string{"id", "request", "response", "error", "workspaceOpenParams", "textSearchResult"} {
+	for _, key := range []string{
+		"id", "request", "response", "error", "workspaceOpenParams", "textSearchResult",
+		"lspStartParams", "lspStartResult", "lspStopParams", "lspStopResult",
+		"lspStatusParams", "lspStatusResult", "lspDiagnosticsParams", "lspDiagnostic",
+		"lspHoverParams", "lspHoverResult", "lspHover", "lspMarkupContent",
+		"lspCompletionParams", "lspCompletionResult", "lspCompletionItem",
+		"lspReferencesParams", "lspReferencesResult", "lspDefinitionParams",
+		"lspDefinitionResult", "lspLocation", "lspRange", "lspPosition",
+		"lspTextChange",
+	} {
 		if _, ok := defs[key]; !ok {
 			t.Errorf("$defs is missing %q", key)
 		}
