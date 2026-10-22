@@ -12,6 +12,8 @@ interface WailsApp {
   CloseFile(path: string, discard: boolean): Promise<void>;
   GetSyntaxHighlights(uri: string, text: string): Promise<SyntaxHighlightsResult>;
   GetLSPStatusView(): Promise<LSPStatusView>;
+  RetryLanguageServer(): Promise<void>;
+  StartLanguageServer(): Promise<void>;
   LSPHover(uri: string, line: number, character: number): Promise<LSPHoverResult | null>;
   LSPCompletion(uri: string, line: number, character: number): Promise<LSPCompletionResult>;
   LSPReferences(uri: string, line: number, character: number, includeDeclaration: boolean): Promise<LSPReferencesResult>;
@@ -56,6 +58,8 @@ export const backend = {
   closeFile: (path: string, discard: boolean) => bridge().CloseFile(path, discard),
   syntaxHighlights: (uri: string, text: string) => bridge().GetSyntaxHighlights(uri, text),
   lspStatus: () => bridge().GetLSPStatusView(),
+  retryLanguageServer: () => bridge().RetryLanguageServer(),
+  startLanguageServer: () => bridge().StartLanguageServer(),
   lspHover: (uri: string, line: number, character: number) => bridge().LSPHover(uri, line, character),
   lspCompletion: (uri: string, line: number, character: number) => bridge().LSPCompletion(uri, line, character),
   lspReferences: (uri: string, line: number, character: number, includeDeclaration: boolean) => bridge().LSPReferences(uri, line, character, includeDeclaration),

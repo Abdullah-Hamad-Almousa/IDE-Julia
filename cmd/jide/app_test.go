@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/jide-dev/jide/internal/workspace"
 )
 
 func TestWorkspaceOpenEditSaveRoundTrip(t *testing.T) {
@@ -174,6 +176,28 @@ func TestGetWorkspaceReturnsNilBeforeOpen(t *testing.T) {
 	}
 	if view != nil {
 		t.Errorf("GetWorkspace() = %+v, want nil", view)
+	}
+}
+
+func TestSourceOnlyWorkspaceStartsLanguageServer(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "hello.jl")
+	if err := os.WriteFile(source, []byte("println(\"hello\")\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	opened, err := workspace.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree, err := opened.Tree(workspace.ScanOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opened.ProjectPath() != "" {
+		t.Fatalf("fixture unexpectedly has Project.toml at %q", opened.ProjectPath())
+	}
+	if !shouldStartLanguageServer(opened.ProjectPath(), tree) {
+		t.Fatal("source-only Julia workspace was not selected for language-server startup")
 	}
 }
 

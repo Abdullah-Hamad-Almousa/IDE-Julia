@@ -220,6 +220,25 @@
     catch { lspStatus = { state: 'unavailable' }; }
   }
 
+  async function retryLanguageServer(): Promise<void> {
+    lspStatus = { ...lspStatus, state: 'starting', message: undefined };
+    try {
+      await backend.retryLanguageServer();
+      await refreshLSPStatus();
+    } catch (error) {
+      lspStatus = { state: 'stopped', message: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  async function startLanguageServer(): Promise<void> {
+    lspStatus = { ...lspStatus, state: 'starting', message: undefined };
+    try {
+      await backend.startLanguageServer();
+    } catch (error) {
+      lspStatus = { state: 'stopped', message: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
   function handleGlobalKeydown(event: KeyboardEvent): void {
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'o') {
       event.preventDefault();
@@ -450,6 +469,9 @@
   <footer class="statusbar">
     <div class="status-left">
       <span class="status-indicator" title={lspStatus.message ?? (lspStatus.julia ? `Julia ${lspStatus.julia}` : 'Julia language server')}><span></span> {lspStatus.state === 'running' ? 'Julia LS' : lspStatus.state}</span>
+      {#if $workspaceStore && lspStatus.state === 'stopped'}
+        <button class="quiet-button" title={lspStatus.message ?? 'Start Julia language server'} on:click={lspStatus.message ? retryLanguageServer : startLanguageServer}>{lspStatus.message ? 'Retry Julia server' : 'Start Julia server'}</button>
+      {/if}
       {#if $workspaceStore}
         <span class="status-path" title={$workspaceStore.root}>{$workspaceStore.root}</span>
       {/if}

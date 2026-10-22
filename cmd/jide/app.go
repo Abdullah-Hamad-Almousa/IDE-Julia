@@ -41,6 +41,7 @@ type App struct {
 	mu           sync.Mutex
 	ctx          context.Context
 	ctxCancel    context.CancelFunc
+	lspContext   context.Context
 	active       *workspaceSession
 	lsp          *lsp.Client
 	diagnostics  map[string][]jide.LSPDiagnostic
@@ -118,6 +119,7 @@ func (a *App) shutdown(_ context.Context) {
 	cancel := a.ctxCancel
 	a.lsp = nil
 	a.ctxCancel = nil
+	a.lspContext = nil
 	a.mu.Unlock()
 	if cancel != nil {
 		cancel()
@@ -182,6 +184,7 @@ func (a *App) OpenWorkspace(root string) (*WorkspaceView, error) {
 	oldCancel := a.ctxCancel
 	a.lsp = nil
 	a.ctxCancel = nil
+	a.lspContext = nil
 	a.diagnostics = make(map[string][]jide.LSPDiagnostic)
 	a.lspDocuments = make(map[string]openLSPDocument)
 	a.active = session
@@ -196,11 +199,15 @@ func (a *App) OpenWorkspace(root string) (*WorkspaceView, error) {
 		_ = oldLSP.Stop(ctx)
 		cancel()
 	}
-	if opened.ProjectPath() != "" && desktopContext != nil {
+	if shouldStartLanguageServer(opened.ProjectPath(), tree) && desktopContext != nil {
+		projectPath := opened.ProjectPath()
+		if projectPath == "" {
+			projectPath = filepath.Join(root, workspace.ProjectFileName)
+		}
 		lspContext, cancelLSP := context.WithCancel(context.Background())
 		var client *lsp.Client
 		client = lsp.New(lsp.Options{
-			ProjectPath: opened.ProjectPath(), RootURI: lsp.FileURI(root),
+			ProjectPath: projectPath, RootURI: lsp.FileURI(root),
 			OnDiagnostics: func(uri string, diagnostics []jide.LSPDiagnostic) {
 				params := jide.LSPDiagnosticsParams{URI: uri, Diagnostics: diagnostics}
 				a.mu.Lock()
@@ -236,6 +243,7 @@ func (a *App) OpenWorkspace(root string) (*WorkspaceView, error) {
 		a.mu.Lock()
 		a.lsp = client
 		a.ctxCancel = cancelLSP
+		a.lspContext = lspContext
 		a.mu.Unlock()
 		go func() {
 			if err := client.Start(lspContext); err != nil {
@@ -267,6 +275,56 @@ func (a *App) GetLSPStatusView() map[string]any {
 		view["message"] = status.LastError
 	}
 	return view
+}
+
+// RetryLanguageServer retries startup after a runtime or package setup error.
+func (a *App) RetryLanguageServer() error {
+	a.mu.Lock()
+	client := a.lsp
+	ctx := a.lspContext
+	a.mu.Unlock()
+	if client == nil {
+		return errors.New("jide: open a Julia workspace before starting the language server")
+	}
+	if ctx == nil {
+		return errors.New("jide: language-server context is unavailable")
+	}
+	go func() {
+		if err := client.Start(ctx); err != nil {
+			a.mu.Lock()
+			wailsCtx := a.ctx
+			a.mu.Unlock()
+			if wailsCtx != nil {
+				wailsruntime.EventsEmit(wailsCtx, "lsp:error", err.Error())
+			}
+		}
+	}()
+	return nil
+}
+
+// StartLanguageServer starts the server after it has not yet been initialized.
+func (a *App) StartLanguageServer() error {
+	a.mu.Lock()
+	client := a.lsp
+	ctx := a.lspContext
+	a.mu.Unlock()
+	if client == nil || ctx == nil {
+		return errors.New("jide: no Julia source workspace is active")
+	}
+	if client.State() != lsp.StateStopped {
+		return fmt.Errorf("jide: language server is %s", client.State())
+	}
+	go func() {
+		if err := client.Start(ctx); err != nil {
+			a.mu.Lock()
+			wailsCtx := a.ctx
+			a.mu.Unlock()
+			if wailsCtx != nil {
+				wailsruntime.EventsEmit(wailsCtx, "lsp:error", err.Error())
+			}
+		}
+	}()
+	return nil
 }
 
 // LSPHover requests hover information from LanguageServer.jl.
@@ -588,6 +646,19 @@ func pathWithin(root, target string) bool {
 		return true
 	}
 	return relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
+}
+
+func hasJuliaSource(tree *workspace.Tree) bool {
+	for _, entry := range tree.Entries {
+		if !entry.IsDir && strings.EqualFold(filepath.Ext(entry.Path), ".jl") {
+			return true
+		}
+	}
+	return false
+}
+
+func shouldStartLanguageServer(projectPath string, tree *workspace.Tree) bool {
+	return projectPath != "" || hasJuliaSource(tree)
 }
 
 func pathToURI(path string) string {

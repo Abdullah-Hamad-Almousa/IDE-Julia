@@ -50,7 +50,7 @@ func JuliaCommand(runtime jlproc.Runtime, projectPath string) Command {
 	_ = os.MkdirAll(filepath.Join(serverProject, "symbolcache"), 0o700)
 	args := []string{"--startup-file=no", "--history-file=no", "--color=no", "--project=" + serverProject}
 	args = append(args, "-e", languageServerCode, "--", filepath.Dir(projectPath), filepath.Join(serverProject, "symbolcache"))
-	return Command{Executable: runtime.Executable, Args: args}
+	return Command{Executable: runtime.Executable, Args: args, Dir: filepath.Dir(projectPath)}
 }
 
 func serverProjectPath() (string, error) {
