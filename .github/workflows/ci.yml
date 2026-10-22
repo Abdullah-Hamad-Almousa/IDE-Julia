@@ -1,0 +1,126 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: "1.24"
+  GOLANGCI_LINT_VERSION: v1.64.8
+
+jobs:
+  build:
+    name: build/test/vet (${{ matrix.os }}, ${{ matrix.module }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+        module:
+          - proto/jide
+          - cmd/jided
+          - cmd/jide
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go ${{ env.GO_VERSION }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
+
+      - name: Build (${{ matrix.module }})
+        working-directory: ${{ matrix.module }}
+        run: go build ./...
+
+      - name: Test (${{ matrix.module }})
+        working-directory: ${{ matrix.module }}
+        run: go test ./...
+
+      - name: Vet (${{ matrix.module }})
+        working-directory: ${{ matrix.module }}
+        run: go vet ./...
+
+  workspace:
+    name: workspace (ubuntu-latest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go ${{ env.GO_VERSION }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
+
+      # The workspace file is the contract between the modules. It must be
+      # consistent and every module must build together with the others.
+      - name: Sync the workspace
+        run: go work sync
+
+      - name: List the workspace modules
+        run: go list -m all
+
+      # "go build ./..." cannot be used at the repository root: the root is not
+      # a module, so the pattern matches nothing. The module prefixes below
+      # select every package of the workspace.
+      - name: Build the whole workspace
+        run: go build ./proto/jide/... ./cmd/jided/... ./cmd/jide/...
+
+      - name: Test the whole workspace
+        run: go test ./proto/jide/... ./cmd/jided/... ./cmd/jide/...
+
+      - name: Vet the whole workspace
+        run: go vet ./proto/jide/... ./cmd/jided/... ./cmd/jide/...
+
+  lint:
+    name: lint (${{ matrix.os }}, ${{ matrix.module }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+        module:
+          - proto/jide
+          - cmd/jided
+          - cmd/jide
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go ${{ env.GO_VERSION }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
+
+      - name: Lint (${{ matrix.module }})
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+          working-directory: ${{ matrix.module }}
+          args: --timeout=5m

@@ -1,0 +1,55 @@
+# Go build output
+/jide
+/jided
+/bin/
+/dist/
+/build/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+*.prof
+*.coverprofile
+coverage.txt
+coverage.html
+
+# Node / frontend (future ui/ workspace)
+node_modules/
+ui/dist/
+ui/build/
+ui/.svelte-kit/
+ui/.vite/
+npm-debug.log*
+yarn-error.log*
+yarn-debug.log*
+pnpm-debug.log*
+.npm/
+
+# Editors and IDEs
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+secrets.json
+credentials.json
+
+# Test and coverage artefacts
+/tmp/
+*.out.test

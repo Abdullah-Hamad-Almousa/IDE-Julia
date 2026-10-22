@@ -1,0 +1,62 @@
+# golangci-lint configuration for the jide monorepo.
+#
+# The configuration is shared by every module of the workspace. The pinned
+# golangci-lint version lives in .github/workflows/ci.yml; keep the two in
+# sync so that "green locally" means the same thing as "green in CI".
+#
+# Note: a v1 configuration has no "version" key. The key was introduced with
+# golangci-lint v2 and golangci-lint v1.64.8 refuses to run when it is set.
+
+run:
+  timeout: 5m
+  modules-download-mode: readonly
+  tests: true
+
+linters:
+  enable:
+    - errcheck
+    - errorlint
+    - gocritic
+    - gofmt
+    - goimports
+    - gosimple
+    - govet
+    - ineffassign
+    - misspell
+    - nilerr
+    - predeclared
+    - revive
+    - staticcheck
+    - unconvert
+    - unused
+    - wastedassign
+
+linters-settings:
+  errcheck:
+    check-type-assertions: true
+  errorlint:
+    errorf: true
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - style
+  misspell:
+    locale: US
+  revive:
+    rules:
+      - name: exported
+      - name: package-comments
+      - name: var-naming
+      - name: indent-error-flow
+      - name: errorf
+      - name: error-strings
+      - name: error-naming
+      - name: empty-block
+      - name: superfluous-else
+      - name: unused-parameter
+      - name: unreachable-code
+      - name: redefines-builtin-id
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
