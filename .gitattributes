@@ -1,0 +1,3 @@
+# Vite's minified Monaco distribution carries intentional trailing spaces in
+# generated string literals. Do not normalize or trim the generated bundle.
+cmd/jide/frontend/dist/assets/*.js whitespace=-blank-at-eol

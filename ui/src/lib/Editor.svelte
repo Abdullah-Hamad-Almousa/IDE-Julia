@@ -1,0 +1,72 @@
+<script lang="ts">
+  import { onDestroy, onMount } from 'svelte';
+  import type * as monaco from 'monaco-editor';
+  import {
+    applyDocument,
+    createJuliaEditor,
+    disposeEditor,
+    removeDocumentModel,
+    updateJuliaHighlights
+  } from './syntaxBridge';
+  import type { DocumentView } from './types';
+
+  export let document: DocumentView | null = null;
+  export let openPaths: string[] = [];
+  export let onChange: (path: string, text: string) => void;
+  export let onSave: (path: string, text: string) => void;
+  export let onCursor: (line: number, column: number) => void;
+
+  let host: HTMLDivElement;
+  let editor: monaco.editor.IStandaloneCodeEditor | null = null;
+  let syncing = false;
+  let knownPaths = new Set<string>();
+
+  onMount(() => {
+    editor = createJuliaEditor(host, (path, text) => {
+      if (!syncing) onChange(path, text);
+    }, onSave);
+    editor.onDidChangeCursorPosition((event) => onCursor(event.position.lineNumber, event.position.column));
+    if (document) showDocument(document);
+  });
+
+  $: if (editor && document) showDocument(document);
+  $: if (editor) removeClosedModels(openPaths);
+
+  function showDocument(next: DocumentView): void {
+    if (!editor) return;
+    const current = editor.getModel();
+    syncing = true;
+    try {
+      if (current?.uri.fsPath === next.path && current.getValue() === next.text) {
+        // Keep the existing model and its cursor/undo history.
+      } else {
+        applyDocument(editor, next);
+      }
+      knownPaths.add(next.path);
+    } finally {
+      syncing = false;
+    }
+    updateJuliaHighlights();
+  }
+
+  function removeClosedModels(paths: string[]): void {
+    const open = new Set(paths);
+    for (const path of knownPaths) {
+      if (!open.has(path)) {
+        removeDocumentModel(path);
+        knownPaths.delete(path);
+      }
+    }
+  }
+
+  onDestroy(() => {
+    if (editor) disposeEditor(editor);
+    for (const path of knownPaths) removeDocumentModel(path);
+  });
+</script>
+
+<div class="editor-host" bind:this={host} aria-label="Julia source editor"></div>
+
+<style>
+  .editor-host { height: 100%; min-height: 0; width: 100%; }
+</style>

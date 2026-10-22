@@ -8,6 +8,42 @@ Format: one section per work package, newest first within a milestone.
 
 ---
 
+## M1 WP3 — Wails UI shell
+
+### Workspace operations use a temporary in-process Wails adapter
+
+* **What is missing.** The UI calls the Wails Go binding, which currently
+  delegates to the existing `workspace`, `vfs`, and `syntax` packages in the
+  shell process. It does not yet call `cmd/jided` over the JSON-RPC protocol.
+* **Why.** The daemon is still a version stub; its transport and dispatcher
+  are tracked as gaps in WP1/WP2. WP3 needs a usable open-edit-save surface
+  before that transport exists.
+* **How to close the gap.** Implement daemon request dispatch for workspace,
+  document, and syntax methods, then replace the in-process bridge with a
+  protocol client and run the UI acceptance flow end to end.
+
+### Native desktop smoke has not been run
+
+* **What is missing.** `npm run check`, the production bundle build, and
+  headless Go open-edit-save tests pass, but a Wails window has not been
+  launched and exercised by automation in this environment.
+* **Why.** The development harness can build the Windows shell but does not
+  provide a controllable desktop/webview session for a scripted interaction.
+* **How to close the gap.** Run the smoke steps in [`ui/README.md`](../ui/README.md)
+  on a desktop with the WebView2 runtime, then add platform GUI automation when
+  a stable Wails test driver is selected.
+
+### Julia runtime selection is a scaffold
+
+* **What is missing.** The status-bar picker switches between detected
+  `Project.toml` metadata and a default option; it does not discover Julia
+  installations or launch a runtime.
+* **Why.** `juliaup` discovery and environment supervision belong to WP4.
+* **How to close the gap.** Populate picker options from the runtime supervisor
+  and persist/select the resolved Julia executable in WP4.
+
+---
+
 ## M1 WP2 — Julia syntax
 
 ### Syntax RPC methods are not served by the daemon yet

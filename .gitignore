@@ -16,12 +16,15 @@
 coverage.txt
 coverage.html
 
-# Node / frontend (future ui/ workspace)
+# Node / frontend
 node_modules/
 ui/dist/
 ui/build/
 ui/.svelte-kit/
 ui/.vite/
+ui/wailsjs/
+ui/package.json.md5
+cmd/jide/build/
 npm-debug.log*
 yarn-error.log*
 yarn-debug.log*

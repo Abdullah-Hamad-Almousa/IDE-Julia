@@ -126,6 +126,21 @@ gofmt -l .          # must print nothing
 
 Add the new module to those patterns when you add it to the workspace.
 
+### Desktop frontend
+
+`cmd/jide` embeds the committed Vite output in `cmd/jide/frontend/dist`, so the
+Go modules build from a clean checkout. After changing `ui/`, regenerate that
+asset directory and run the frontend type check:
+
+```bash
+( cd ui && npm ci && npm run build )
+```
+
+The Wails shell needs platform WebView prerequisites. CI installs GTK 3 and
+WebKit2GTK 4.1 on Linux and uses the `webkit2_41` Go build tag; Windows jobs
+install MinGW for cgo. The frontend job checks that the embedded assets match
+the frontend sources.
+
 ### Lint
 
 The lint configuration is `.golangci.yml` at the repository root and applies
@@ -174,9 +189,10 @@ positive, and say so in the commit message.
   source code, tests, fixtures, documentation or commit messages.
 * Settings that may hold user data are stored in the per-user configuration
   directory at runtime, never in the repository.
-* CI needs no secrets: the workflow only runs `go build`, `go test`,
-  `go vet` and `golangci-lint`. Keep it that way — no secret-bearing step,
-  no `secrets.*` reference, no pull-request target in a fork.
+* CI needs no secrets: the workflow runs Go build/test/vet/lint and the UI's
+  `npm ci`, `npm run check` and `npm run build`. Keep it that way — no
+  secret-bearing step, no `secrets.*` reference, no pull-request target in a
+  fork.
 
 ---
 
