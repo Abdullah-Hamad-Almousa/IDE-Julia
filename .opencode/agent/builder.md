@@ -1,7 +1,7 @@
 ---
 description: jide build agent (MiniMax M3.1 Flash via OpenRouter). Use for implementing work packages of the jide Julia IDE per Plan.md.
 mode: subagent
-model: openrouter/minimax/minimax-m3.1-flash:free
+model: opencode-go/minimax-m3.1-flash-free
 temperature: 0.2
 ---
 
