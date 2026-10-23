@@ -261,10 +261,26 @@ proposes and with the flag that tells the shell to ask again while the user
 types. `lsp/references` and `lsp/definition` answer with the source
 locations that the server reports.
 
+The desktop initializes LanguageServer.jl with the workspace folder. It does
+not advertise support for `workspace/configuration`, so LanguageServer.jl uses
+its own documented defaults. The client retains a defensive JSON-RPC response
+path for server requests, but settings negotiation is intentionally disabled
+until a user-settings source is implemented. The LanguageServer package itself is installed in
+the per-user tooling environment; when the workspace contains a project file,
+that project's directory is selected for analysis, and otherwise Julia
+autodetects its default environment. No project file is created in the user's
+source-only folder.
+
 The engine restarts the server when it dies, with a backoff that starts at
 one second and doubles every attempt, up to five attempts. The state of the
 server is `restarting` while the engine waits. The documents that the editor
 has open are opened again in the restarted server.
+
+Completion items preserve the server's optional replacement `textEdit`,
+`additionalTextEdits`, and `insertTextFormat` fields so an editor can replace
+the typed prefix and apply import edits without duplicating text. The desktop
+uses the workspace directory as the language-server process working directory
+for a source-only folder.
 
 ## JSON Schema
 

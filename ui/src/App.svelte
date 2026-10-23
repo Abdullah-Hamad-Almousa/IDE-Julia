@@ -13,7 +13,7 @@
   } from './lib/stores';
   import { windowControls } from './lib/api';
   import { runtimeEvents } from './lib/api';
-  import { setLSPDiagnostics } from './lib/syntaxBridge';
+  import { clearLSPDiagnostics, registerJuliaEditorActions, setLSPDiagnostics } from './lib/syntaxBridge';
   import type { DocumentView, FileNode, LSPDiagnostic, LSPStatusView, WorkspaceView } from './lib/types';
 
   let busy = false;
@@ -28,6 +28,13 @@
   let stopDiagnostics: (() => void) | undefined;
   let stopLSPStatus: (() => void) | undefined;
   let stopLSPError: (() => void) | undefined;
+  let lspProviderErrorListener: ((event: Event) => void) | undefined;
+  let editorActions: Array<{ dispose(): void }> = [];
+  let targetPosition: { path: string; line: number; column: number } | null = null;
+  let statusErrorMessage = '';
+  let providerErrorMessage = '';
+  let statusMessage = '';
+  let statusRefreshGeneration = 0;
 
   $: fileTree = buildFileTree($workspaceStore?.entries ?? []);
   $: filteredTree = filterNodes(fileTree, filterText.trim().toLowerCase());
@@ -37,20 +44,26 @@
   );
 
   onMount(async () => {
+    editorActions = registerJuliaEditorActions();
     try {
       workspaceStore.set(await backend.getWorkspace());
-      await refreshLSPStatus();
-      statusTimer = setInterval(() => void refreshLSPStatus(), 2000);
       stopDiagnostics = runtimeEvents.on('lsp:diagnostics', (payload) => {
         const params = payload as { uri: string; diagnostics: LSPDiagnostic[] };
         setLSPDiagnostics(params.uri, params.diagnostics ?? []);
       });
-      stopLSPStatus = runtimeEvents.on('lsp:status', (payload) => {
-        lspStatus = { ...lspStatus, state: String(payload) };
-      });
+      stopLSPStatus = runtimeEvents.on('lsp:status', () => { void refreshLSPStatus(); });
       stopLSPError = runtimeEvents.on('lsp:error', (payload) => {
-        lspStatus = { ...lspStatus, state: 'stopped', message: String(payload) };
+        statusErrorMessage = String(payload);
+        void refreshLSPStatus();
       });
+      lspProviderErrorListener = (event) => {
+        const detail = (event as CustomEvent<{ feature: string; message: string }>).detail;
+        providerErrorMessage = `Julia ${detail.feature} request failed: ${detail.message}`;
+      };
+      window.addEventListener('jide:lsp-provider-error', lspProviderErrorListener);
+      statusTimer = setInterval(() => void refreshLSPStatus(), 2000);
+      await refreshLSPStatus();
+      for (const document of $documentsStore) if (document.path.toLowerCase().endsWith('.jl')) await refreshDocumentDiagnostics(document.path);
     } catch (error) {
       showError(error);
     }
@@ -62,6 +75,8 @@
     stopDiagnostics?.();
     stopLSPStatus?.();
     stopLSPError?.();
+    if (lspProviderErrorListener) window.removeEventListener('jide:lsp-provider-error', lspProviderErrorListener);
+    for (const action of editorActions) action.dispose();
   });
 
   async function openWorkspace(): Promise<void> {
@@ -91,6 +106,7 @@
       const document = await backend.openFile(node.absolutePath);
       replaceDocument(document);
       activeDocumentPathStore.set(document.path);
+      if (document.path.toLowerCase().endsWith('.jl')) await refreshDocumentDiagnostics(document.path);
     } catch (error) {
       showError(error);
     } finally {
@@ -108,6 +124,7 @@
       updateTimers.delete(path);
       void queueUpdate(path, text);
     }, 180));
+    void refreshDocumentDiagnostics(path);
   }
 
   function queueUpdate(path: string, text: string): Promise<void> {
@@ -198,13 +215,41 @@
   }
 
   function setWorkspace(next: WorkspaceView): void {
+    clearLSPDiagnostics();
     workspaceStore.set(next);
     documentsStore.set([]);
     activeDocumentPathStore.set(null);
     filterText = '';
     errorMessage = '';
+    statusErrorMessage = '';
+    statusMessage = '';
     void refreshLSPStatus();
   }
+
+  async function openNavigationTarget(path: string): Promise<DocumentView> {
+    const normalizedPath = path.replace(/\\/g, '/').replace(/^([A-Z]):/, (_, drive: string) => `${drive.toLowerCase()}:`);
+    const existing = $documentsStore.find((document) => document.path.replace(/\\/g, '/').replace(/^([A-Z]):/, (_, drive: string) => `${drive.toLowerCase()}:`) === normalizedPath);
+    if (existing) {
+      activeDocumentPathStore.set(existing.path);
+      return existing;
+    }
+    const document = await backend.openFile(path);
+    replaceDocument(document);
+    activeDocumentPathStore.set(document.path);
+    if (document.path.toLowerCase().endsWith('.jl')) await refreshDocumentDiagnostics(document.path);
+    return document;
+  }
+
+  async function refreshDocumentDiagnostics(path: string): Promise<void> {
+    try {
+      const uri = await backend.juliaSourceURI(path);
+      let diagnostics = await backend.lspDiagnostics(uri);
+      setLSPDiagnostics(uri, diagnostics);
+    } catch (error) {
+      console.error('Could not refresh Julia diagnostics:', error);
+    }
+  }
+
 
   async function selectEnvironment(event: Event): Promise<void> {
     const select = event.currentTarget as HTMLSelectElement;
@@ -216,27 +261,56 @@
   }
 
   async function refreshLSPStatus(): Promise<void> {
-    try { lspStatus = await backend.lspStatus(); }
-    catch { lspStatus = { state: 'unavailable' }; }
+    const generation = ++statusRefreshGeneration;
+    try {
+      const status = await backend.lspStatus();
+      if (generation !== statusRefreshGeneration) return;
+      lspStatus = status;
+      if (!providerErrorMessage) {
+        statusErrorMessage = status.message && status.state === 'stopped' ? status.message : '';
+        statusMessage = status.message && status.state !== 'stopped' ? status.message : '';
+      }
+      if (status.state === 'restarting') {
+        statusMessage = `Julia language server restarting (attempt ${status.restartAttempts ?? 1})…`;
+      }
+      if (status.state === 'running') {
+        for (const document of $documentsStore) {
+          if (document.path.toLowerCase().endsWith('.jl')) void refreshDocumentDiagnostics(document.path);
+        }
+      }
+    } catch (error) {
+      if (generation !== statusRefreshGeneration) return;
+      lspStatus = { state: 'unavailable' };
+      statusErrorMessage = error instanceof Error ? error.message : String(error);
+    }
   }
 
   async function retryLanguageServer(): Promise<void> {
     lspStatus = { ...lspStatus, state: 'starting', message: undefined };
+    statusErrorMessage = '';
+    statusMessage = 'Starting Julia language server…';
     try {
       await backend.retryLanguageServer();
-      await refreshLSPStatus();
     } catch (error) {
-      lspStatus = { state: 'stopped', message: error instanceof Error ? error.message : String(error) };
+      statusErrorMessage = error instanceof Error ? error.message : String(error);
     }
+    await refreshLSPStatus();
+    if (statusTimer) clearInterval(statusTimer);
+    statusTimer = setInterval(() => void refreshLSPStatus(), 2000);
   }
 
   async function startLanguageServer(): Promise<void> {
     lspStatus = { ...lspStatus, state: 'starting', message: undefined };
+    statusErrorMessage = '';
+    statusMessage = 'Starting Julia language server…';
     try {
       await backend.startLanguageServer();
     } catch (error) {
-      lspStatus = { state: 'stopped', message: error instanceof Error ? error.message : String(error) };
+      statusErrorMessage = error instanceof Error ? error.message : String(error);
     }
+    await refreshLSPStatus();
+    if (statusTimer) clearInterval(statusTimer);
+    statusTimer = setInterval(() => void refreshLSPStatus(), 2000);
   }
 
   function handleGlobalKeydown(event: KeyboardEvent): void {
@@ -428,6 +502,9 @@
           <Editor
             document={$activeDocumentStore}
             {openPaths}
+            onOpen={openNavigationTarget}
+            onActivate={(path) => activeDocumentPathStore.set(path)}
+            {targetPosition}
             onChange={handleEditorChange}
             onSave={(path, text) => {
               const current = $documentsStore.find((item) => item.path === path);
@@ -469,8 +546,8 @@
   <footer class="statusbar">
     <div class="status-left">
       <span class="status-indicator" title={lspStatus.message ?? (lspStatus.julia ? `Julia ${lspStatus.julia}` : 'Julia language server')}><span></span> {lspStatus.state === 'running' ? 'Julia LS' : lspStatus.state}</span>
-      {#if $workspaceStore && lspStatus.state === 'stopped'}
-        <button class="quiet-button" title={lspStatus.message ?? 'Start Julia language server'} on:click={lspStatus.message ? retryLanguageServer : startLanguageServer}>{lspStatus.message ? 'Retry Julia server' : 'Start Julia server'}</button>
+      {#if $workspaceStore && (lspStatus.state === 'stopped' || lspStatus.state === 'unavailable')}
+        <button class="quiet-button" title={statusErrorMessage || 'Start Julia language server'} on:click={lspStatus.state === 'stopped' && lspStatus.message ? retryLanguageServer : startLanguageServer}>{lspStatus.state === 'stopped' && lspStatus.message ? 'Retry Julia server' : 'Start Julia server'}</button>
       {/if}
       {#if $workspaceStore}
         <span class="status-path" title={$workspaceStore.root}>{$workspaceStore.root}</span>
@@ -501,6 +578,26 @@
       </label>
     </div>
   </footer>
+
+
+  {#if providerErrorMessage}
+    <section class="lsp-status-panel lsp-status-error" role="alert" aria-live="assertive">
+      <strong>Julia editor request failed</strong>
+      <p>{providerErrorMessage}</p>
+      <button class="quiet-button" on:click={() => (providerErrorMessage = '')}>Dismiss</button>
+    </section>
+  {:else if statusErrorMessage && (lspStatus.state === 'stopped' || lspStatus.state === 'unavailable' || lspStatus.state === 'restarting')}
+    <section class="lsp-status-panel lsp-status-error" role="alert" aria-live="assertive">
+      <strong>Julia language server stopped</strong>
+      <p>{statusErrorMessage}</p>
+      {#if $workspaceStore}
+        <button class="quiet-button" on:click={retryLanguageServer}>Retry Julia server</button>
+      {/if}
+    </section>
+  {:else if statusMessage}
+    <section class="lsp-status-panel" role="status" aria-live="polite">{statusMessage}</section>
+  {/if}
+
 
   {#if errorMessage}
     <div class="error-toast" role="alert">

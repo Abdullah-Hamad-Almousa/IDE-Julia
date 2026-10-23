@@ -13,16 +13,6 @@ import (
 	"github.com/jide-dev/jide/internal/jlproc"
 )
 
-// languageServerCode starts the language server of the Julia standard
-// library.
-//
-// The server reads the messages from the standard input and writes them to
-// the standard output of the process, which is the stdio transport of the
-// protocol.
-const languageServerCode = `using LanguageServer
-server = LanguageServer.LanguageServerInstance(stdin, stdout, ARGS[1], nothing, ARGS[2])
-run(server)`
-
 // Command describes the process that runs a language server.
 type Command struct {
 	// Executable is the path of the program.
@@ -37,20 +27,58 @@ type Command struct {
 }
 
 // JuliaCommand returns the command that starts LanguageServer.jl with the
-// given Julia runtime.
+// given Julia runtime. The language-server package environment is separate
+// from the Julia analysis environment of the workspace.
 //
 // The startup file of Julia is disabled, so that the configuration of the
-// user cannot break the session, and the project of the workspace selects
-// the environment of the server.
+// user cannot break the session. LanguageServer.jl runs from its tooling
+// project while the workspace root remains the process working directory.
 func JuliaCommand(runtime jlproc.Runtime, projectPath string) Command {
+	workspaceRoot := "."
+	if projectPath != "" {
+		workspaceRoot = filepath.Dir(projectPath)
+	}
+	return juliaCommand(runtime, projectPath, workspaceRoot)
+}
+
+// juliaProjectPathForWorkspace reports the Julia environment selected for a
+// workspace root. Source-only workspaces use Julia's environment autodetection.
+func juliaProjectPathForWorkspace(projectPath, workspaceRoot string) string {
+	if projectPath != "" {
+		return filepath.Dir(projectPath)
+	}
+	if hasJuliaEnvironmentMarker(workspaceRoot) {
+		return workspaceRoot
+	}
+	return ""
+}
+
+func JuliaWorkspaceCommand(runtime jlproc.Runtime, projectPath, workspaceRoot string) Command {
+	return juliaCommand(runtime, projectPath, workspaceRoot)
+}
+
+func juliaCommand(juliaRuntime jlproc.Runtime, projectPath, workspaceRoot string) Command {
 	serverProject, err := serverProjectPath()
 	if err != nil {
 		serverProject = filepath.Join(os.TempDir(), "jide", "language-server")
 	}
 	_ = os.MkdirAll(filepath.Join(serverProject, "symbolcache"), 0o700)
 	args := []string{"--startup-file=no", "--history-file=no", "--color=no", "--project=" + serverProject}
-	args = append(args, "-e", languageServerCode, "--", filepath.Dir(projectPath), filepath.Join(serverProject, "symbolcache"))
-	return Command{Executable: runtime.Executable, Args: args, Dir: filepath.Dir(projectPath)}
+	envPath := juliaProjectPathForWorkspace(projectPath, workspaceRoot)
+	serverCode := `using LanguageServer
+server = LanguageServer.LanguageServerInstance(stdin, stdout, ARGS[1], nothing, ARGS[2])
+run(server)`
+	args = append(args, "-e", serverCode, "--", envPath, filepath.Join(serverProject, "symbolcache"))
+	return Command{Executable: juliaRuntime.Executable, Args: args, Dir: workspaceRoot}
+}
+
+func hasJuliaEnvironmentMarker(root string) bool {
+	for _, name := range []string{"Project.toml", "JuliaProject.toml"} {
+		if _, err := os.Stat(filepath.Join(root, name)); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 func serverProjectPath() (string, error) {
@@ -93,7 +121,15 @@ func FileURI(path string) string {
 	if !strings.HasPrefix(slashed, "/") {
 		slashed = "/" + slashed
 	}
+	if runtime.GOOS == "windows" && len(slashed) >= 3 && slashed[2] == ':' {
+		slashed = "/" + strings.ToLower(slashed[1:2]) + slashed[2:]
+	}
 	escaped := (&url.URL{Path: slashed}).EscapedPath()
+	if runtime.GOOS == "windows" && len(slashed) >= 3 && slashed[2] == ':' {
+		escaped = strings.Replace(escaped, "%3A", ":", 1)
+	}
+	// Julia's URI parser treats an escaped colon in the drive-letter segment
+	// as a non-canonical path and later emits a different URI for diagnostics.
 	return "file://" + escaped
 }
 

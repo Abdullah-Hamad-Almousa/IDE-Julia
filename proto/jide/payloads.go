@@ -590,6 +590,14 @@ type LSPCompletionItem struct {
 	// InsertText is the text that the editor inserts when it differs from
 	// the label.
 	InsertText string `json:"insertText,omitempty"`
+	// TextEdit replaces the text range selected by the server when the
+	// completion item is accepted. Text is the replacement text.
+	TextEdit *LSPTextChange `json:"textEdit,omitempty"`
+	// AdditionalTextEdits are non-overlapping edits applied with the main
+	// completion edit.
+	AdditionalTextEdits []LSPTextChange `json:"additionalTextEdits,omitempty"`
+	// InsertTextFormat is 1 for plain text or 2 for an LSP snippet.
+	InsertTextFormat int `json:"insertTextFormat,omitempty"`
 }
 
 // LSPTextChange is one change of a document.

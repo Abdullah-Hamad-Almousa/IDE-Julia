@@ -17,13 +17,17 @@ func TestClientEndToEnd(t *testing.T) {
 	directory := t.TempDir()
 	command, logPath := fakeServerCommand(t, directory)
 
-	published := make(chan string, 8)
+	type publishedDiagnostics struct {
+		uri         string
+		diagnostics []jide.LSPDiagnostic
+	}
+	published := make(chan publishedDiagnostics, 8)
 	client := New(Options{
 		Command: command,
 		RootURI: "file:///workspace",
-		OnDiagnostics: func(uri string, _ []jide.LSPDiagnostic) {
+		OnDiagnostics: func(uri string, diagnostics []jide.LSPDiagnostic) {
 			select {
-			case published <- uri:
+			case published <- publishedDiagnostics{uri: uri, diagnostics: diagnostics}:
 			default:
 			}
 		},
@@ -45,8 +49,11 @@ func TestClientEndToEnd(t *testing.T) {
 
 	select {
 	case got := <-published:
-		if got != uri {
-			t.Errorf("the diagnostics were published for %q, want %q", got, uri)
+		if got.uri != uri {
+			t.Errorf("the diagnostics were published for %q, want %q", got.uri, uri)
+		}
+		if len(got.diagnostics) != 1 {
+			t.Errorf("published diagnostics = %d, want 1", len(got.diagnostics))
 		}
 	case <-time.After(15 * time.Second):
 		t.Fatal("the language server did not publish diagnostics")
@@ -155,6 +162,62 @@ func TestClientRefusesASecondStart(t *testing.T) {
 	t.Cleanup(func() { _ = client.Stop(context.Background()) })
 	if err := client.Start(ctx); err == nil {
 		t.Fatal("Start() error = nil, want an error")
+	}
+}
+
+func TestClientDoesNotAdvertiseWorkspaceConfiguration(t *testing.T) {
+	directory := t.TempDir()
+	command, logPath := fakeServerCommand(t, directory)
+	client := New(Options{Command: command})
+	if err := client.Start(context.Background()); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	t.Cleanup(func() { _ = client.Stop(context.Background()) })
+	trace := waitForTrace(t, logPath, "message initialize", 1)
+	if containsLine(trace, "client advertised workspace configuration") {
+		t.Fatal("client advertised workspace/configuration without a settings source")
+	}
+}
+
+func TestSemanticRequestWaitsForStartupAndQueuedDocumentOpen(t *testing.T) {
+	directory := t.TempDir()
+	command, logPath := fakeServerCommand(t, directory)
+	command.Env = append(command.Env, "JIDE_LSP_FAKE_DELAY_INITIALIZE=1")
+	client := New(Options{Command: command})
+	started := make(chan error, 1)
+	go func() { started <- client.Start(context.Background()) }()
+	waitForTrace(t, logPath, "message initialize", 1)
+
+	uri := "file:///workspace/main.jl"
+	if err := client.DidOpen(context.Background(), uri, "julia", "alpha()\n", 1); err != nil {
+		t.Fatalf("queue DidOpen() during startup: %v", err)
+	}
+	requestCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	completion, err := client.Completion(requestCtx, uri, 0, 2)
+	if err != nil {
+		t.Fatalf("Completion() during startup: %v", err)
+	}
+	if len(completion.Items) != 1 || completion.Items[0].Label != "alpha" {
+		t.Fatalf("completion after startup = %+v", completion.Items)
+	}
+	if err := <-started; err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	t.Cleanup(func() { _ = client.Stop(context.Background()) })
+
+	trace := serverTrace(t, logPath)
+	didOpenIndex, completionIndex := -1, -1
+	for index, line := range trace {
+		if line == "message textDocument/didOpen" {
+			didOpenIndex = index
+		}
+		if line == "message textDocument/completion" {
+			completionIndex = index
+		}
+	}
+	if didOpenIndex < 0 || completionIndex <= didOpenIndex {
+		t.Fatalf("server message order didOpen=%d completion=%d, trace=%v", didOpenIndex, completionIndex, trace)
 	}
 }
 

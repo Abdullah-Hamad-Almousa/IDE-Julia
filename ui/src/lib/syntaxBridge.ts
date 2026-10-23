@@ -1,4 +1,8 @@
 import './monacoEnv';
+import 'monaco-editor/editor/contrib/hover/browser/hoverContribution.js';
+import 'monaco-editor/editor/contrib/suggest/browser/suggestController.js';
+import 'monaco-editor/editor/contrib/gotoSymbol/browser/goToCommands.js';
+import 'monaco-editor/editor/standalone/browser/referenceSearch/standaloneReferenceSearch.js';
 import * as monaco from 'monaco-editor/editor/editor.api.js';
 import { backend } from './api';
 import type { DocumentView, LSPCompletionItem, LSPDiagnostic, LSPHoverResult, SyntaxToken } from './types';
@@ -12,9 +16,55 @@ const tokenTypeIndex = new Map(juliaTokenTypes.map((kind, index) => [kind, index
 const refreshListeners = new Set<(event: void) => void>();
 const decorationIds = new WeakMap<monaco.editor.ITextModel, string[]>();
 const lspDiagnostics = new Map<string, LSPDiagnostic[]>();
+const providerErrors = new Map<string, string>();
+const providerErrorTimes = new Map<string, number>();
 const utf8Encoder = new TextEncoder();
 const utf8Decoder = new TextDecoder();
 let juliaReady = false;
+
+export function reportProviderError(feature: string, error: unknown): void {
+  const now = Date.now();
+  const message = error instanceof Error ? error.message : String(error);
+  if (providerErrors.get(feature) === message) return;
+  if (now - (providerErrorTimes.get(feature) ?? 0) < 5000) return;
+  providerErrorTimes.set(feature, now);
+  providerErrors.set(feature, message);
+  console.error(`Julia ${feature} request failed: ${message}`);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('jide:lsp-provider-error', { detail: { feature, message } }));
+  }
+}
+
+export function setEditorOpener(
+  openDocument: (path: string) => Promise<DocumentView>,
+  activateDocument: (path: string) => void
+): { dispose(): void } {
+  const opener: monaco.editor.ICodeEditorOpener = {
+    async openCodeEditor(source, resource, selectionOrPosition) {
+      try {
+        const path = await backend.pathFromURI(resource.toString());
+        const document = await openDocument(path);
+        activateDocument(document.path);
+        const model = monaco.editor.getModel(monaco.Uri.file(document.path))
+          ?? monaco.editor.createModel(document.text, languageForPath(document.path), monaco.Uri.file(document.path));
+        if (source.getModel() !== model) source.setModel(model);
+        const fullEditor = source as monaco.editor.IStandaloneCodeEditor;
+        if (selectionOrPosition) {
+          if ('startLineNumber' in selectionOrPosition) fullEditor.setSelection(selectionOrPosition);
+          else fullEditor.setPosition(selectionOrPosition);
+        }
+        const position = fullEditor.getPosition();
+        if (position) fullEditor.revealPositionInCenter(position);
+        fullEditor.focus();
+        return true;
+      } catch (error) {
+        reportProviderError('navigation', error);
+        return false;
+      }
+    }
+  };
+  return monaco.editor.registerEditorOpener(opener);
+}
 
 interface TokenSpan {
   line: number;
@@ -54,7 +104,6 @@ export function createJuliaEditor(
     smoothScrolling: true,
     cursorSmoothCaretAnimation: 'on'
   });
-
   editor.onDidChangeModelContent(() => {
     const model = editor.getModel();
     if (model) onChange(model.uri.fsPath, model.getValue());
@@ -66,11 +115,32 @@ export function createJuliaEditor(
   return editor;
 }
 
+export function registerJuliaEditorActions(): { dispose(): void }[] {
+  return [
+    monaco.editor.addEditorAction({
+      id: 'jide.triggerJuliaCompletion',
+      label: 'Julia: Trigger Suggestions',
+      keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Space],
+      run: (editor) => editor.trigger('jide', 'editor.action.triggerSuggest', null)
+    }),
+    monaco.editor.addEditorAction({
+      id: 'jide.goToJuliaReferences',
+      label: 'Go to References',
+      keybindings: [monaco.KeyMod.Shift | monaco.KeyCode.F12],
+      keybindingContext: 'editorTextFocus',
+      contextMenuGroupId: 'navigation',
+      contextMenuOrder: 1.45,
+      run: (editor) => editor.trigger('jide', 'editor.action.goToReferences', null)
+    })
+  ];
+}
+
+
 export function updateJuliaHighlights(): void {
   for (const listener of refreshListeners) listener(undefined);
 }
 
-export function applyDocument(editor: monaco.editor.IStandaloneCodeEditor, document: DocumentView): void {
+export function applyDocument(editor: monaco.editor.IStandaloneCodeEditor, document: DocumentView): monaco.editor.ITextModel {
   const uri = monaco.Uri.file(document.path);
   let model = monaco.editor.getModel(uri);
   if (!model) {
@@ -84,6 +154,7 @@ export function applyDocument(editor: monaco.editor.IStandaloneCodeEditor, docum
   if (editor.getModel() !== model) editor.setModel(model);
   editor.updateOptions({ readOnly: false });
   updateJuliaHighlights();
+  return model;
 }
 
 export function removeDocumentModel(path: string): void {
@@ -108,7 +179,9 @@ function languageForPath(path: string): string {
 function registerJuliaLanguage(): void {
   if (juliaReady) return;
   juliaReady = true;
-  monaco.languages.register({ id: 'julia' });
+  if (!monaco.languages.getLanguages().some((language) => language.id === 'julia')) {
+    monaco.languages.register({ id: 'julia' });
+  }
   monaco.languages.setLanguageConfiguration('julia', {
     comments: { lineComment: '#', blockComment: ['#=', '=#'] },
     brackets: [['(', ')'], ['[', ']'], ['{', '}']],
@@ -123,7 +196,7 @@ function registerJuliaLanguage(): void {
     ]
   });
   monaco.languages.setMonarchTokensProvider('julia', juliaMonarch);
-  monaco.languages.registerHoverProvider('julia', {
+  const juliaHover: monaco.languages.HoverProvider = {
     provideHover: async (model, position, token) => {
       try {
         const result: LSPHoverResult | null = await backend.lspHover(model.uri.toString(), position.lineNumber - 1, position.column - 1);
@@ -131,12 +204,13 @@ function registerJuliaLanguage(): void {
         if (!result.hover) return null;
         const contents = result.hover.contents.value;
         const range = result.hover.range ? new monaco.Range(result.hover.range.start.line + 1, result.hover.range.start.character + 1, result.hover.range.end.line + 1, result.hover.range.end.character + 1) : undefined;
-        return { contents: [{ value: contents }], range };
-      } catch { return null; }
+        return { contents: [{ value: contents, isTrusted: false }], range };
+      } catch (error) { reportProviderError('hover', error); return null; }
     }
-  });
-  monaco.languages.registerCompletionItemProvider('julia', {
-    triggerCharacters: ['.', '@'],
+  };
+  monaco.languages.registerHoverProvider('julia', juliaHover);
+  const juliaCompletion: monaco.languages.CompletionItemProvider = {
+    triggerCharacters: ['.', '@', '"', '^'],
     provideCompletionItems: async (model, position, _context, token) => {
       try {
         const result = await backend.lspCompletion(model.uri.toString(), position.lineNumber - 1, position.column - 1);
@@ -146,36 +220,46 @@ function registerJuliaLanguage(): void {
           kind: completionKind(item.kind),
           detail: item.detail,
           documentation: typeof item.documentation === 'string' ? item.documentation : undefined,
-          insertText: item.insertText || item.label,
-          range: new monaco.Range(position.lineNumber, position.column, position.lineNumber, position.column)
+          insertText: item.textEdit?.text ?? item.insertText ?? item.label,
+          insertTextRules: item.insertTextFormat === 2 ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet : undefined,
+          additionalTextEdits: item.additionalTextEdits?.map((edit) => ({
+            range: new monaco.Range(edit.range.start.line + 1, edit.range.start.character + 1, edit.range.end.line + 1, edit.range.end.character + 1),
+            text: edit.text
+          })),
+          range: item.textEdit
+            ? new monaco.Range(item.textEdit.range.start.line + 1, item.textEdit.range.start.character + 1, item.textEdit.range.end.line + 1, item.textEdit.range.end.character + 1)
+            : wordRange(model, position)
         })) };
-      } catch { return { suggestions: [] }; }
+      } catch (error) { reportProviderError('completion', error); return { suggestions: [] }; }
     }
-  });
-  monaco.languages.registerReferenceProvider('julia', {
+  };
+  monaco.languages.registerCompletionItemProvider('julia', juliaCompletion);
+  const juliaReferences: monaco.languages.ReferenceProvider = {
     provideReferences: async (model, position, context, token) => {
       try {
         const result = await backend.lspReferences(model.uri.toString(), position.lineNumber - 1, position.column - 1, context.includeDeclaration);
         if (token.isCancellationRequested) return [];
         return result.locations.map((location) => ({
-          uri: monaco.Uri.parse(location.uri),
+          uri: fileLocationURI(location.uri),
           range: new monaco.Range(location.range.start.line + 1, location.range.start.character + 1, location.range.end.line + 1, location.range.end.character + 1)
         }));
-      } catch { return []; }
+      } catch (error) { reportProviderError('references', error); return []; }
     }
-  });
-  monaco.languages.registerDefinitionProvider('julia', {
+  } satisfies monaco.languages.ReferenceProvider;
+  monaco.languages.registerReferenceProvider('julia', juliaReferences);
+  const juliaDefinition: monaco.languages.DefinitionProvider = {
     provideDefinition: async (model, position, token) => {
       try {
         const result = await backend.lspDefinition(model.uri.toString(), position.lineNumber - 1, position.column - 1);
         if (token.isCancellationRequested) return [];
         return result.locations.map((location) => ({
-          uri: monaco.Uri.parse(location.uri),
+          uri: fileLocationURI(location.uri),
           range: new monaco.Range(location.range.start.line + 1, location.range.start.character + 1, location.range.end.line + 1, location.range.end.character + 1)
         }));
-      } catch { return []; }
+      } catch (error) { reportProviderError('definition', error); return []; }
     }
-  });
+  };
+  monaco.languages.registerDefinitionProvider('julia', juliaDefinition);
   monaco.editor.defineTheme('jide-dark', {
     base: 'vs-dark',
     inherit: true,
@@ -261,10 +345,21 @@ function registerJuliaLanguage(): void {
   });
 }
 
+export function clearLSPDiagnostics(): void {
+  for (const uri of lspDiagnostics.keys()) {
+    const model = monaco.editor.getModel(fileLocationURI(uri));
+    if (model) monaco.editor.setModelMarkers(model, 'jide-lsp', []);
+    const normalized = normalizeFileURI(uri);
+    const normalizedModel = monaco.editor.getModel(fileLocationURI(normalized));
+    if (normalizedModel && normalizedModel !== model) monaco.editor.setModelMarkers(normalizedModel, 'jide-lsp', []);
+  }
+  lspDiagnostics.clear();
+}
+
 export function setLSPDiagnostics(uri: string, diagnostics: LSPDiagnostic[]): void {
-  lspDiagnostics.set(uri, diagnostics);
-  const model = monaco.editor.getModel(monaco.Uri.parse(uri));
-  if (!model) return;
+  const normalized = normalizeFileURI(uri);
+  lspDiagnostics.set(normalized, diagnostics);
+  const model = monaco.editor.getModel(fileLocationURI(uri));
   const markers = diagnostics.map((diagnostic) => ({
     severity: diagnostic.severity === 1 ? monaco.MarkerSeverity.Error : diagnostic.severity === 2 ? monaco.MarkerSeverity.Warning : diagnostic.severity === 3 ? monaco.MarkerSeverity.Info : monaco.MarkerSeverity.Hint,
     message: diagnostic.message,
@@ -274,7 +369,25 @@ export function setLSPDiagnostics(uri: string, diagnostics: LSPDiagnostic[]): vo
     endLineNumber: diagnostic.range.end.line + 1,
     endColumn: Math.max(diagnostic.range.end.character + 1, diagnostic.range.start.character + 2)
   }));
-  monaco.editor.setModelMarkers(model, 'jide-lsp', markers);
+  if (model) monaco.editor.setModelMarkers(model, 'jide-lsp', markers);
+  const normalizedModel = monaco.editor.getModel(fileLocationURI(normalized));
+  if (normalizedModel && normalizedModel !== model) monaco.editor.setModelMarkers(normalizedModel, 'jide-lsp', markers);
+}
+
+function wordRange(model: monaco.editor.ITextModel, position: monaco.Position): monaco.Range {
+  const word = model.getWordAtPosition(position);
+  return word
+    ? new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn)
+    : new monaco.Range(position.lineNumber, position.column, position.lineNumber, position.column);
+}
+
+function fileLocationURI(uri: string): monaco.Uri {
+  return monaco.Uri.parse(uri);
+}
+
+function normalizeFileURI(uri: string): string {
+  const parsed = monaco.Uri.parse(uri);
+  return parsed.scheme === 'file' ? monaco.Uri.file(parsed.fsPath).toString() : uri;
 }
 
 function completionKind(kind?: number): monaco.languages.CompletionItemKind {

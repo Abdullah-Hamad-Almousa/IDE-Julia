@@ -305,3 +305,32 @@ func TestDocumentReadAndSaveResultsMarshal(t *testing.T) {
 		t.Errorf("version = %v, want %v", got, want)
 	}
 }
+
+func TestLSPCompletionItemMarshalsReplacementEdits(t *testing.T) {
+	item := LSPCompletionItem{
+		Label:            "alpha",
+		InsertTextFormat: 2,
+		TextEdit: &LSPTextChange{
+			Range: &LSPRange{Start: LSPPosition{Character: 1}, End: LSPPosition{Character: 3}},
+			Text:  "alpha()",
+		},
+		AdditionalTextEdits: []LSPTextChange{{Text: "using Base\n"}},
+	}
+	raw, err := json.Marshal(item)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := decoded["textEdit"]; !ok {
+		t.Error("textEdit missing from completion JSON")
+	}
+	if got, ok := decoded["insertTextFormat"].(float64); !ok || got != 2 {
+		t.Errorf("insertTextFormat = %v, want 2", decoded["insertTextFormat"])
+	}
+	if edits, ok := decoded["additionalTextEdits"].([]any); !ok || len(edits) != 1 {
+		t.Errorf("additionalTextEdits = %v, want one edit", decoded["additionalTextEdits"])
+	}
+}

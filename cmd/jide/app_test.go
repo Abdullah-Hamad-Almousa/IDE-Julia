@@ -1,13 +1,16 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/jide-dev/jide/internal/lsp"
 	"github.com/jide-dev/jide/internal/workspace"
+	jide "github.com/jide-dev/jide/proto/jide"
 )
 
 func TestWorkspaceOpenEditSaveRoundTrip(t *testing.T) {
@@ -198,6 +201,38 @@ func TestSourceOnlyWorkspaceStartsLanguageServer(t *testing.T) {
 	}
 	if !shouldStartLanguageServer(opened.ProjectPath(), tree) {
 		t.Fatal("source-only Julia workspace was not selected for language-server startup")
+	}
+}
+
+func TestLSPStatusReportsStartupAndError(t *testing.T) {
+	app := NewApp()
+	if _, err := app.OpenWorkspace(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	app.mu.Lock()
+	app.lsp = lsp.New(lsp.Options{})
+	app.lspContext, app.ctxCancel = context.WithCancel(context.Background())
+	app.lspStarting = true
+	app.mu.Unlock()
+	if got := app.GetLSPStatusView()["state"]; got != string(lsp.StateStarting) {
+		t.Errorf("startup state = %v, want starting", got)
+	}
+	app.mu.Lock()
+	app.lspStarting = false
+	app.mu.Unlock()
+	status := app.GetLSPStatusView()
+	if status["state"] != string(lsp.StateStopped) {
+		t.Errorf("failed status = %v", status)
+	}
+}
+
+func TestGetLSPDiagnosticsReturnsCopy(t *testing.T) {
+	app := NewApp()
+	app.diagnostics["file:///sample.jl"] = []jide.LSPDiagnostic{{Message: "error"}}
+	got := app.GetLSPDiagnostics("file:///sample.jl")
+	got[0].Message = "modified"
+	if app.GetLSPDiagnostics("file:///sample.jl")[0].Message != "error" {
+		t.Fatal("GetLSPDiagnostics returned the stored backing slice")
 	}
 }
 

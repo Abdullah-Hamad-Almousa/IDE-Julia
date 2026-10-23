@@ -92,12 +92,25 @@ func protocolCompletionItems(items []lspCompletionItem) []jide.LSPCompletionItem
 	converted := make([]jide.LSPCompletionItem, 0, len(items))
 	for _, item := range items {
 		entry := jide.LSPCompletionItem{
-			Label:      item.Label,
-			Kind:       jide.LSPCompletionItemKind(item.Kind),
-			Detail:     item.Detail,
-			SortText:   item.SortText,
-			FilterText: item.FilterText,
-			InsertText: item.InsertText,
+			Label:            item.Label,
+			Kind:             jide.LSPCompletionItemKind(item.Kind),
+			Detail:           item.Detail,
+			SortText:         item.SortText,
+			FilterText:       item.FilterText,
+			InsertText:       item.InsertText,
+			InsertTextFormat: item.InsertTextFormat,
+		}
+		if item.TextEdit != nil {
+			entry.TextEdit = &jide.LSPTextChange{
+				Range: protocolRangePointer(item.TextEdit.Range),
+				Text:  item.TextEdit.NewText,
+			}
+		}
+		for _, edit := range item.AdditionalTextEdits {
+			entry.AdditionalTextEdits = append(entry.AdditionalTextEdits, jide.LSPTextChange{
+				Range: protocolRangePointer(edit.Range),
+				Text:  edit.NewText,
+			})
 		}
 		if len(item.Documentation) > 0 {
 			_, value, err := decodeMarkup(item.Documentation)

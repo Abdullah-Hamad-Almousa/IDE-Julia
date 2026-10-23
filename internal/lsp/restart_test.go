@@ -164,6 +164,30 @@ func TestClientOpensTheDocumentsAgainAfterACrash(t *testing.T) {
 	waitForTrace(t, logPath, "message textDocument/didOpen", 2)
 }
 
+func TestClientOpensDocumentsAddedWhileStoppedOnStart(t *testing.T) {
+	directory := t.TempDir()
+	command, logPath := fakeServerCommand(t, directory)
+	client := New(Options{Command: command})
+	uri := "file:///workspace/queued.jl"
+	if err := client.DidOpen(context.Background(), uri, "julia", "queued() = 42\n", 3); err != nil {
+		t.Fatalf("DidOpen() while stopped error = %v", err)
+	}
+	if got := client.State(); got != StateStopped {
+		t.Fatalf("state after queuing document = %q, want stopped", got)
+	}
+	if err := client.Start(context.Background()); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	t.Cleanup(func() { _ = client.Stop(context.Background()) })
+	trace := waitForTrace(t, logPath, "message textDocument/didOpen", 1)
+	if !containsLine(trace, "message textDocument/didOpen") {
+		t.Fatalf("server did not receive queued document: %v", trace)
+	}
+	if client.State() != StateRunning {
+		t.Fatalf("state = %q, want running", client.State())
+	}
+}
+
 // TestClientGivesUpAfterTheLastAttempt checks that the client stops the
 // restarts when the policy is exhausted.
 func TestClientGivesUpAfterTheLastAttempt(t *testing.T) {

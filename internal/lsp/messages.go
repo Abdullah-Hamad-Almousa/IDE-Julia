@@ -99,13 +99,21 @@ type lspHover struct {
 
 // lspCompletionItem is one entry of a completion list.
 type lspCompletionItem struct {
-	Label         string          `json:"label"`
-	Kind          int             `json:"kind,omitempty"`
-	Detail        string          `json:"detail,omitempty"`
-	Documentation json.RawMessage `json:"documentation,omitempty"`
-	SortText      string          `json:"sortText,omitempty"`
-	FilterText    string          `json:"filterText,omitempty"`
-	InsertText    string          `json:"insertText,omitempty"`
+	Label               string          `json:"label"`
+	Kind                int             `json:"kind,omitempty"`
+	Detail              string          `json:"detail,omitempty"`
+	Documentation       json.RawMessage `json:"documentation,omitempty"`
+	SortText            string          `json:"sortText,omitempty"`
+	FilterText          string          `json:"filterText,omitempty"`
+	InsertText          string          `json:"insertText,omitempty"`
+	InsertTextFormat    int             `json:"insertTextFormat,omitempty"`
+	TextEdit            *lspTextEdit    `json:"textEdit,omitempty"`
+	AdditionalTextEdits []lspTextEdit   `json:"additionalTextEdits,omitempty"`
+}
+
+type lspTextEdit struct {
+	Range   lspRange `json:"range"`
+	NewText string   `json:"newText"`
 }
 
 // lspCompletionList is the answer of a completion request.
@@ -190,13 +198,14 @@ type publishDiagnosticsParams struct {
 
 // initializeParams are the parameters of the initialize request.
 type initializeParams struct {
-	ProcessID        int                `json:"processId"`
-	RootURI          string             `json:"rootUri,omitempty"`
-	RootPath         string             `json:"rootPath,omitempty"`
-	Capabilities     clientCapabilities `json:"capabilities"`
-	ClientInfo       clientInfo         `json:"clientInfo"`
-	WorkspaceFolders []workspaceFolder  `json:"workspaceFolders,omitempty"`
-	Trace            string             `json:"trace,omitempty"`
+	ProcessID             int                `json:"processId"`
+	RootURI               string             `json:"rootUri,omitempty"`
+	RootPath              string             `json:"rootPath,omitempty"`
+	Capabilities          clientCapabilities `json:"capabilities"`
+	ClientInfo            clientInfo         `json:"clientInfo"`
+	WorkspaceFolders      []workspaceFolder  `json:"workspaceFolders,omitempty"`
+	InitializationOptions map[string]any     `json:"initializationOptions,omitempty"`
+	Trace                 string             `json:"trace,omitempty"`
 }
 
 // clientInfo names the client of the session.
@@ -294,7 +303,8 @@ type publishDiagnosticsCapabilities struct {
 // workspaceCapabilities describes the workspace features that the engine
 // supports.
 type workspaceCapabilities struct {
-	WorkspaceFolders bool `json:"workspaceFolders"`
+	WorkspaceFolders bool  `json:"workspaceFolders"`
+	Configuration    *bool `json:"configuration,omitempty"`
 }
 
 // defaultCapabilities returns the capabilities that the engine announces.

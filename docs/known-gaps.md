@@ -10,6 +10,34 @@ Format: one section per work package, newest first within a milestone.
 
 ## M2 WP4 — Julia LanguageServer integration
 
+### Native Wails verification remains outstanding
+
+* **What is missing.** The headless integration test with real Julia 1.13.1 and
+  LanguageServer.jl 6.0.1 verifies a source-only workspace, hover, completion,
+  definition, and cross-file references. A deterministic fake server verifies
+  diagnostics delivery; Julia's default lint rules do not promise to mark every
+  typo, so an empty diagnostics list is not a failure by itself. The real test
+  does not prove the interactive Windows WebView routes hover, Ctrl+Space,
+  Shift+F12, and cross-file reference navigation correctly.
+* **Why.** A successful package test/build does not prove which desktop process
+  or assets the user launches. The final run must use a fresh Wails session and
+  the real `A:\test` workspace, preserving unsaved work.
+* **How to close the gap.** Launch the freshly built dev app from the repository,
+  open `A:\test`, verify server state/error text and the listed editor actions,
+  then record the results. Keep any failure details and update this section.
+
+### Per-user LanguageServer settings are not wired
+
+* **What is missing.** The desktop does not advertise `workspace/configuration`
+  support, so LanguageServer.jl uses its documented defaults. Runtime user
+  settings and dynamic capability registration are not implemented.
+* **Why.** The previous empty configuration response could block the Julia
+  server's initialize handler. A settings source and proper registration
+  lifecycle are outside this repair's evidence-backed fix.
+* **How to close the gap.** Add a typed per-user LSP settings store, advertise
+  configuration only when it can answer every requested section, and add a
+  real-server test that verifies initialization and configuration updates.
+
 ### Daemon transport and dispatcher remain unavailable
 
 * **What is missing.** The Wails shell calls the headless LSP service through
@@ -20,6 +48,18 @@ Format: one section per work package, newest first within a milestone.
 * **How to close the gap.** Implement the engine daemon transport/dispatcher
   and replace the temporary Wails adapter with a protocol client while keeping
   the LSP service headless.
+
+### Windows desktop linter could not load Tree-sitter export data
+
+* **What is missing.** Tests and `go vet` for `cmd/jide` pass with the available
+  Octave GCC and CGO enabled, but the pinned golangci-lint analysis fails while
+  loading `internal/syntax/juliagrammar` export data.
+* **Why.** The local Windows Go/CGO build combination does not provide export
+  data for the generated grammar package to the analyzer. No linter findings
+  were emitted; analysis aborts before it can complete.
+* **How to close the gap.** Run the pinned linter from the CI Windows toolchain
+  or install a compatible GCC/Go pairing and verify `golangci-lint run ./...`
+  completes without the export-data loader error.
 
 ---
 

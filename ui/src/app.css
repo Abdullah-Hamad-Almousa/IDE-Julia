@@ -166,6 +166,10 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 1px s
 .error-toast { align-items: center; background: #321f28; border: 1px solid #70404c; border-radius: 7px; bottom: 42px; box-shadow: 0 12px 35px #0008; color: #f1bec5; display: flex; font-size: 11px; gap: 9px; max-width: min(580px, calc(100% - 36px)); padding: 9px 11px; position: absolute; right: 17px; z-index: 20; }
 .error-icon { align-items: center; border: 1px solid #b66775; border-radius: 50%; color: #ff9ba9; display: inline-flex; flex: 0 0 16px; font-family: var(--mono); font-size: 10px; height: 16px; justify-content: center; }
 .error-toast button { background: transparent; border: 0; color: #ca8b94; cursor: pointer; font-size: 17px; margin-left: 5px; padding: 0 2px; }
+.lsp-status-panel { background: #15242b; border: 1px solid #326052; border-radius: 7px; bottom: 42px; box-shadow: 0 12px 35px #0009; color: #c8e7dc; font-size: 11px; max-height: 38vh; max-width: min(700px, calc(100% - 36px)); overflow: auto; padding: 12px 14px; position: absolute; right: 17px; z-index: 21; }
+.lsp-status-panel p { color: #f0c8cd; line-height: 1.5; margin: 7px 0 10px; overflow-wrap: anywhere; white-space: pre-wrap; }
+.lsp-status-error { background: #321f28; border-color: #70404c; color: #ffcad1; }
+.lsp-status-error .quiet-button { margin-top: 4px; }
 
 .monaco-editor, .monaco-editor-background, .monaco-editor .margin { background-color: #0b1018 !important; }
 .monaco-editor .line-numbers { color: #4f5c6d !important; }

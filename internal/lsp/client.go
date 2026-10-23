@@ -10,7 +10,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -69,9 +71,15 @@ type Options struct {
 	// selects the environment of the server when the client starts
 	// LanguageServer.jl itself.
 	ProjectPath string
+	// WorkspaceRoot is the root folder of the workspace on disk. It is used
+	// as the process working directory independently of Julia's package env.
+	WorkspaceRoot string
 	// RootURI is the root folder of the workspace, as an URI. It is sent in
 	// the initialize request.
 	RootURI string
+	// InitializationOptions are forwarded to the language server initialize
+	// request.
+	InitializationOptions map[string]any
 	// Backoff is the restart policy of the client.
 	Backoff BackoffPolicy
 	// Clock is the time source of the restart supervisor. It defaults to
@@ -80,6 +88,9 @@ type Options struct {
 	// InitializeTimeout bounds the initialize handshake. The language
 	// server of Julia needs seconds to start, because it compiles itself.
 	InitializeTimeout time.Duration
+	// AnalysisTimeout bounds semantic requests which can trigger Julia indexing
+	// or compilation on their first invocation. Zero uses the request timeout.
+	AnalysisTimeout time.Duration
 	// RequestTimeout bounds a single request.
 	RequestTimeout time.Duration
 	// Stderr receives the standard error of the server process. It
@@ -126,6 +137,8 @@ type Client struct {
 	opts Options
 
 	mu          sync.Mutex
+	documentMu  sync.Mutex
+	stderrTail  *tailBuffer
 	state       State
 	command     Command
 	runtime     *jlproc.Runtime
@@ -137,6 +150,7 @@ type Client struct {
 	restarts    int
 	lastError   string
 	stopping    bool
+	starting    bool
 	cancel      context.CancelFunc
 }
 
@@ -157,8 +171,14 @@ func New(opts Options) *Client {
 	if opts.RequestTimeout <= 0 {
 		opts.RequestTimeout = 30 * time.Second
 	}
+	if opts.AnalysisTimeout <= 0 {
+		opts.AnalysisTimeout = opts.RequestTimeout
+	}
+	stderrTail := &tailBuffer{limit: 8 << 10}
 	if opts.Stderr == nil {
-		opts.Stderr = io.Discard
+		opts.Stderr = stderrTail
+	} else {
+		opts.Stderr = io.MultiWriter(opts.Stderr, stderrTail)
 	}
 	return &Client{
 		opts:        opts,
@@ -166,6 +186,7 @@ func New(opts Options) *Client {
 		pending:     make(map[string]chan *response),
 		documents:   make(map[string]*document),
 		diagnostics: make(map[string][]jide.LSPDiagnostic),
+		stderrTail:  stderrTail,
 	}
 }
 
@@ -175,43 +196,46 @@ func New(opts Options) *Client {
 // document synchronization and the restart supervisor start with it.
 func (c *Client) Start(ctx context.Context) error {
 	c.mu.Lock()
-	if c.state == StateRunning || c.state == StateStarting {
+	if c.state != StateStopped || c.proc != nil {
 		c.mu.Unlock()
 		return fmt.Errorf("lsp: %w", ErrAlreadyRunning)
 	}
 	c.state = StateStarting
+	c.starting = true
 	c.restarts = 0
 	c.lastError = ""
 	c.stopping = false
 	c.mu.Unlock()
+	if c.stderrTail != nil {
+		c.stderrTail.Reset()
+	}
+	c.mu.Lock()
+	c.diagnostics = make(map[string][]jide.LSPDiagnostic)
+	c.mu.Unlock()
 	c.notifyState(StateStarting)
-	startCtx, cancelStart := context.WithCancel(ctx)
+	setupTimeout := 30 * time.Minute
+	if c.opts.InitializeTimeout > setupTimeout {
+		setupTimeout = c.opts.InitializeTimeout
+	}
+	startCtx, cancelStart := context.WithTimeout(ctx, setupTimeout)
 	defer cancelStart()
-	go func() {
-		select {
-		case <-startCtx.Done():
-		case <-time.After(c.opts.InitializeTimeout + c.opts.InitializeTimeout + c.opts.InitializeTimeout):
-			if c.State() == StateStarting {
-				c.killProcess()
-				c.setLastError("lsp: language server startup timed out")
-				c.setState(StateStopped)
-			}
-		}
-	}()
-
 	command, resolved, err := c.resolve(startCtx)
 	if err != nil {
+		err = c.withStderr(err)
+		c.finishStarting()
 		c.setLastError(err.Error())
 		c.setState(StateStopped)
 		return err
 	}
 	if c.opts.Command == nil {
 		if err := ensureLanguageServer(startCtx, command); err != nil {
+			err = c.withStderr(err)
+			c.finishStarting()
 			c.setLastError(err.Error())
 			c.setState(StateStopped)
 			return err
 		}
-		command = JuliaCommand(*resolved, c.opts.ProjectPath)
+		command = JuliaWorkspaceCommand(*resolved, c.opts.ProjectPath, c.workspaceRoot())
 	}
 	c.mu.Lock()
 	c.command = command
@@ -219,23 +243,50 @@ func (c *Client) Start(ctx context.Context) error {
 	c.mu.Unlock()
 
 	if err := c.startProcess(); err != nil {
+		err = c.withStderr(err)
+		c.finishStarting()
 		c.setLastError(err.Error())
 		c.setState(StateStopped)
 		return err
 	}
 	if startCtx.Err() != nil {
 		c.killProcess()
+		c.finishStarting()
 		c.setLastError(startCtx.Err().Error())
 		c.setState(StateStopped)
 		return startCtx.Err()
 	}
-	if err := c.initialize(startCtx); err != nil {
+	initializeCtx, cancelInitialize := context.WithTimeout(startCtx, c.opts.InitializeTimeout)
+	defer cancelInitialize()
+	if err := c.initialize(initializeCtx); err != nil {
 		c.killProcess()
+		err = c.withStderr(err)
+		if errors.Is(err, context.DeadlineExceeded) {
+			err = fmt.Errorf("lsp: initialize the language server: %w", err)
+		}
+		c.finishStarting()
 		c.setLastError(err.Error())
 		c.setState(StateStopped)
 		return err
 	}
-	c.setState(StateRunning)
+	c.documentMu.Lock()
+	if err := c.resyncDocumentsLocked(initializeCtx); err != nil {
+		c.documentMu.Unlock()
+		c.killProcess()
+		c.finishStarting()
+		c.setLastError(fmt.Sprintf("lsp: restore open documents after startup: %v", err))
+		c.setState(StateStopped)
+		return err
+	}
+	c.mu.Lock()
+	oldState := c.state
+	c.state = StateRunning
+	c.starting = false
+	c.mu.Unlock()
+	c.documentMu.Unlock()
+	if oldState != StateRunning {
+		c.notifyState(StateRunning)
+	}
 
 	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	c.mu.Lock()
@@ -281,6 +332,9 @@ func (c *Client) Stop(ctx context.Context) error {
 	}
 	c.killProcess()
 	c.failPending(errors.New("lsp: the language server stopped"))
+	c.mu.Lock()
+	c.starting = false
+	c.mu.Unlock()
 	c.setState(StateStopped)
 	return err
 }
@@ -337,7 +391,18 @@ func (c *Client) Diagnostics(uri string) []jide.LSPDiagnostic {
 
 // DidOpen notifies the server that a document was opened.
 func (c *Client) DidOpen(ctx context.Context, uri, languageID, text string, version int) error {
-	if filepath.Ext(PathFromURI(uri)) != ".jl" {
+	if !strings.EqualFold(filepath.Ext(PathFromURI(uri)), ".jl") {
+		return nil
+	}
+	c.documentMu.Lock()
+	defer c.documentMu.Unlock()
+	uri = canonicalURI(uri)
+	doc := &document{uri: uri, languageID: languageID, version: version, text: text}
+	c.mu.Lock()
+	running := c.state == StateRunning
+	c.documents[uri] = doc
+	c.mu.Unlock()
+	if !running {
 		return nil
 	}
 	params := didOpenParams{TextDocument: textDocumentItem{
@@ -349,9 +414,6 @@ func (c *Client) DidOpen(ctx context.Context, uri, languageID, text string, vers
 	if err := c.notify(ctx, "textDocument/didOpen", params); err != nil {
 		return err
 	}
-	c.mu.Lock()
-	c.documents[uri] = &document{uri: uri, languageID: languageID, version: version, text: text}
-	c.mu.Unlock()
 	return nil
 }
 
@@ -360,18 +422,28 @@ func (c *Client) DidOpen(ctx context.Context, uri, languageID, text string, vers
 // The changes are the incremental changes of the protocol. A change without
 // a range replaces the whole document.
 func (c *Client) DidChange(ctx context.Context, uri string, version int, changes []jide.LSPTextChange) error {
-	if filepath.Ext(PathFromURI(uri)) != ".jl" {
+	if !strings.EqualFold(filepath.Ext(PathFromURI(uri)), ".jl") {
 		return nil
 	}
+	c.documentMu.Lock()
+	defer c.documentMu.Unlock()
+	uri = canonicalURI(uri)
 	c.mu.Lock()
 	doc, known := c.documents[uri]
 	var text string
 	if known {
 		text = doc.text
 	}
+	state := c.state
 	c.mu.Unlock()
 	if !known {
 		return fmt.Errorf("lsp: %w: %s", ErrDocumentNotOpen, uri)
+	}
+	if len(changes) == 0 {
+		return errors.New("lsp: document change must contain at least one text edit")
+	}
+	if version <= doc.version {
+		return fmt.Errorf("lsp: document version %d is not newer than current version %d", version, doc.version)
 	}
 	updated, err := applyChanges(text, changes)
 	if err != nil {
@@ -385,33 +457,55 @@ func (c *Client) DidChange(ctx context.Context, uri string, version int, changes
 		TextDocument:   versionedTextDocumentIdentifier{URI: uri, Version: version},
 		ContentChanges: wire,
 	}
-	if err := c.notify(ctx, "textDocument/didChange", params); err != nil {
-		return err
-	}
 	c.mu.Lock()
 	doc.version = version
 	doc.text = updated
 	c.mu.Unlock()
+	if state == StateRunning {
+		if err := c.notify(ctx, "textDocument/didChange", params); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
 // DidSave notifies the server that a document was saved.
 func (c *Client) DidSave(ctx context.Context, uri, text string) error {
-	if filepath.Ext(PathFromURI(uri)) != ".jl" {
+	if !strings.EqualFold(filepath.Ext(PathFromURI(uri)), ".jl") {
 		return nil
 	}
+	uri = canonicalURI(uri)
 	params := didSaveParams{TextDocument: textDocumentIdentifier{URI: uri}, Text: text}
+	c.mu.Lock()
+	_, known := c.documents[uri]
+	running := c.state == StateRunning
+	c.mu.Unlock()
+	if !known || !running {
+		return nil
+	}
 	return c.notify(ctx, "textDocument/didSave", params)
 }
 
 // DidClose notifies the server that a document was closed.
 func (c *Client) DidClose(ctx context.Context, uri string) error {
-	if filepath.Ext(PathFromURI(uri)) != ".jl" {
+	if !strings.EqualFold(filepath.Ext(PathFromURI(uri)), ".jl") {
 		return nil
 	}
+	c.documentMu.Lock()
+	defer c.documentMu.Unlock()
+	uri = canonicalURI(uri)
 	params := didCloseParams{TextDocument: textDocumentIdentifier{URI: uri}}
-	if err := c.notify(ctx, "textDocument/didClose", params); err != nil {
-		return err
+	c.mu.Lock()
+	_, known := c.documents[uri]
+	running := c.state == StateRunning
+	c.mu.Unlock()
+	if !known {
+		return nil
+	}
+	if running {
+		if err := c.notify(ctx, "textDocument/didClose", params); err != nil {
+			return err
+		}
 	}
 	c.mu.Lock()
 	delete(c.documents, uri)
@@ -424,10 +518,16 @@ func (c *Client) DidClose(ctx context.Context, uri string) error {
 // The position is zero based and its column counts UTF-16 code units. The
 // answer is nil when the server has nothing to say about the position.
 func (c *Client) Hover(ctx context.Context, uri string, line, character int) (*jide.LSPHover, error) {
-	result, err := c.request(ctx, "textDocument/hover", textDocumentPositionParams{
+	if err := c.waitUntilRunning(ctx); err != nil {
+		return nil, err
+	}
+	c.documentMu.Lock()
+	defer c.documentMu.Unlock()
+	uri = canonicalURI(uri)
+	result, err := c.requestTimeout(ctx, "textDocument/hover", textDocumentPositionParams{
 		TextDocument: textDocumentIdentifier{URI: uri},
 		Position:     position{Line: line, Character: character},
-	})
+	}, c.opts.AnalysisTimeout)
 	if err != nil {
 		return nil, err
 	}
@@ -436,10 +536,16 @@ func (c *Client) Hover(ctx context.Context, uri string, line, character int) (*j
 
 // Completion asks the server for the completion items at a position.
 func (c *Client) Completion(ctx context.Context, uri string, line, character int) (jide.LSPCompletionResult, error) {
-	result, err := c.request(ctx, "textDocument/completion", textDocumentPositionParams{
+	if err := c.waitUntilRunning(ctx); err != nil {
+		return jide.LSPCompletionResult{}, err
+	}
+	c.documentMu.Lock()
+	defer c.documentMu.Unlock()
+	uri = canonicalURI(uri)
+	result, err := c.requestTimeout(ctx, "textDocument/completion", textDocumentPositionParams{
 		TextDocument: textDocumentIdentifier{URI: uri},
 		Position:     position{Line: line, Character: character},
-	})
+	}, c.opts.AnalysisTimeout)
 	if err != nil {
 		return jide.LSPCompletionResult{}, err
 	}
@@ -449,11 +555,17 @@ func (c *Client) Completion(ctx context.Context, uri string, line, character int
 // References asks the server for the references of the symbol at a
 // position.
 func (c *Client) References(ctx context.Context, uri string, line, character int, includeDeclaration bool) ([]jide.LSPLocation, error) {
-	result, err := c.request(ctx, "textDocument/references", referenceParams{
+	if err := c.waitUntilRunning(ctx); err != nil {
+		return nil, err
+	}
+	c.documentMu.Lock()
+	defer c.documentMu.Unlock()
+	uri = canonicalURI(uri)
+	result, err := c.requestTimeout(ctx, "textDocument/references", referenceParams{
 		TextDocument: textDocumentIdentifier{URI: uri},
 		Position:     position{Line: line, Character: character},
 		Context:      referenceContext{IncludeDeclaration: includeDeclaration},
-	})
+	}, c.opts.AnalysisTimeout)
 	if err != nil {
 		return nil, err
 	}
@@ -463,14 +575,41 @@ func (c *Client) References(ctx context.Context, uri string, line, character int
 // Definition asks the server for the definition of the symbol at a
 // position.
 func (c *Client) Definition(ctx context.Context, uri string, line, character int) ([]jide.LSPLocation, error) {
-	result, err := c.request(ctx, "textDocument/definition", textDocumentPositionParams{
+	if err := c.waitUntilRunning(ctx); err != nil {
+		return nil, err
+	}
+	c.documentMu.Lock()
+	defer c.documentMu.Unlock()
+	uri = canonicalURI(uri)
+	result, err := c.requestTimeout(ctx, "textDocument/definition", textDocumentPositionParams{
 		TextDocument: textDocumentIdentifier{URI: uri},
 		Position:     position{Line: line, Character: character},
-	})
+	}, c.opts.AnalysisTimeout)
 	if err != nil {
 		return nil, err
 	}
 	return protocolLocations(result)
+}
+
+// waitUntilRunning prevents semantic requests from overtaking initialize and
+// the replay of documents opened while startup was in progress. The request
+// context supplies the upper bound, so callers can cancel while Julia warms up.
+func (c *Client) waitUntilRunning(ctx context.Context) error {
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		switch c.State() {
+		case StateRunning:
+			return nil
+		case StateStopped:
+			return fmt.Errorf("lsp: %w", ErrNotRunning)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
 }
 
 // resolve returns the command that starts the language server and the Julia
@@ -485,7 +624,17 @@ func (c *Client) resolve(ctx context.Context) (Command, *jlproc.Runtime, error) 
 	if err != nil {
 		return Command{}, nil, err
 	}
-	return JuliaCommand(*resolved, c.opts.ProjectPath), resolved, nil
+	return JuliaWorkspaceCommand(*resolved, c.opts.ProjectPath, c.workspaceRoot()), resolved, nil
+}
+
+func (c *Client) workspaceRoot() string {
+	if c.opts.WorkspaceRoot != "" {
+		return c.opts.WorkspaceRoot
+	}
+	if c.opts.ProjectPath != "" {
+		return filepath.Dir(c.opts.ProjectPath)
+	}
+	return "."
 }
 
 // startProcess spawns the server and starts the goroutines that read its
@@ -617,11 +766,14 @@ func (c *Client) handleNotification(msg message) {
 // The engine implements no request of the server. It answers them anyway,
 // so that the server does not wait for an answer that never comes.
 func (c *Client) handleServerRequest(msg message) {
-	result := json.RawMessage("null")
 	if msg.Method == "workspace/configuration" {
-		result = json.RawMessage("[]")
+		c.setLastError("lsp: the server requested workspace/configuration, which jide does not advertise")
 	}
-	payload, err := json.Marshal(outgoingResponse{JSONRPC: "2.0", ID: msg.ID, Result: result})
+	payload, err := json.Marshal(outgoingResponse{
+		JSONRPC: "2.0",
+		ID:      msg.ID,
+		Result:  json.RawMessage("null"),
+	})
 	if err != nil {
 		c.setLastError(fmt.Sprintf("lsp: encode the answer of the server request: %v", err))
 		return
@@ -636,6 +788,7 @@ func (c *Client) handleDiagnostics(raw json.RawMessage) {
 		c.setLastError(fmt.Sprintf("lsp: read the diagnostics of the server: %v", err))
 		return
 	}
+	params.URI = canonicalURI(params.URI)
 	diagnostics := protocolDiagnostics(params.Diagnostics)
 	c.mu.Lock()
 	c.diagnostics[params.URI] = diagnostics
@@ -650,15 +803,16 @@ func (c *Client) initialize(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, c.opts.InitializeTimeout+c.opts.InitializeTimeout)
 	defer cancel()
 	params := initializeParams{
-		ProcessID:    os.Getpid(),
-		RootURI:      c.opts.RootURI,
-		Capabilities: defaultCapabilities(),
-		ClientInfo:   clientInfo{Name: "jide"},
+		ProcessID:             os.Getpid(),
+		RootURI:               c.opts.RootURI,
+		Capabilities:          defaultCapabilities(),
+		ClientInfo:            clientInfo{Name: "jide"},
+		InitializationOptions: c.opts.InitializationOptions,
 	}
 	if c.opts.RootURI != "" {
 		params.WorkspaceFolders = []workspaceFolder{{URI: c.opts.RootURI, Name: "workspace"}}
 	}
-	result, err := c.request(ctx, "initialize", params)
+	result, err := c.requestTimeout(ctx, "initialize", params, c.opts.InitializeTimeout)
 	if err != nil {
 		return fmt.Errorf("lsp: initialize the language server: %w", err)
 	}
@@ -699,20 +853,25 @@ func (c *Client) supervise(ctx context.Context) {
 				return
 			}
 			if err := c.startProcess(); err != nil {
+				err = c.withStderr(err)
 				c.setLastError(err.Error())
 				continue
 			}
 			if err := c.initialize(ctx); err != nil {
+				err = c.withStderr(err)
 				c.setLastError(err.Error())
 				c.killProcess()
 				continue
 			}
-			if err := c.resyncDocuments(ctx); err != nil {
+			c.documentMu.Lock()
+			if err := c.resyncDocumentsLocked(ctx); err != nil {
+				err = c.withStderr(err)
 				c.setLastError(err.Error())
 			}
 			c.mu.Lock()
 			c.restarts = attempt
 			c.mu.Unlock()
+			c.documentMu.Unlock()
 			c.setState(StateRunning)
 			continue
 		}
@@ -724,20 +883,32 @@ func (c *Client) supervise(ctx context.Context) {
 			c.closeProcessStreams(proc)
 			c.mu.Lock()
 			c.proc = nil
+			c.starting = false
 			stopping = c.stopping
+			oldState := c.state
+			if !stopping {
+				c.state = StateRestarting
+			}
 			c.mu.Unlock()
 			if stopping {
 				return
+			}
+			if oldState != StateRestarting {
+				c.notifyState(StateRestarting)
 			}
 		}
 	}
 }
 
-// resyncDocuments tells the server about the documents that are open.
-//
-// A restarted server knows nothing about the documents of the editor, so
-// the client opens them again.
-func (c *Client) resyncDocuments(ctx context.Context) error {
+func (c *Client) finishStarting() {
+	c.mu.Lock()
+	c.starting = false
+	c.mu.Unlock()
+}
+
+// resyncDocumentsLocked tells the server about the documents that are open.
+// The caller holds documentMu for a stable document snapshot.
+func (c *Client) resyncDocumentsLocked(ctx context.Context) error {
 	c.mu.Lock()
 	documents := make([]*document, 0, len(c.documents))
 	for _, doc := range c.documents {
@@ -758,8 +929,58 @@ func (c *Client) resyncDocuments(ctx context.Context) error {
 	return nil
 }
 
+func canonicalURI(uri string) string {
+	path := PathFromURI(uri)
+	if path == uri {
+		return uri
+	}
+	if runtime.GOOS == "windows" {
+		slashed := filepath.ToSlash(path)
+		if len(slashed) < 3 || slashed[0] != '/' || slashed[2] != ':' {
+			return uri
+		}
+		if strings.Contains(strings.ToLower(uri), "%3a") {
+			return FileURI(path)
+		}
+		return uri
+	}
+	return FileURI(path)
+}
+
+type tailBuffer struct {
+	mu    sync.Mutex
+	limit int
+	data  []byte
+}
+
+func (b *tailBuffer) Write(data []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.data = append(b.data, data...)
+	if excess := len(b.data) - b.limit; excess > 0 {
+		b.data = append([]byte(nil), b.data[excess:]...)
+	}
+	return len(data), nil
+}
+
+func (b *tailBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return string(append([]byte(nil), b.data...))
+}
+
+func (b *tailBuffer) Reset() {
+	b.mu.Lock()
+	b.data = nil
+	b.mu.Unlock()
+}
+
 // request sends a request to the server and waits for its answer.
 func (c *Client) request(ctx context.Context, method string, params any) (json.RawMessage, error) {
+	return c.requestTimeout(ctx, method, params, c.opts.RequestTimeout)
+}
+
+func (c *Client) requestTimeout(ctx context.Context, method string, params any, timeout time.Duration) (json.RawMessage, error) {
 	c.mu.Lock()
 	if c.proc == nil || !c.acceptsMessages() {
 		c.mu.Unlock()
@@ -788,12 +1009,21 @@ func (c *Client) request(ctx context.Context, method string, params any) (json.R
 		return nil, err
 	}
 
-	timer := time.NewTimer(c.opts.RequestTimeout)
+	if deadline, ok := ctx.Deadline(); ok {
+		remaining := time.Until(deadline)
+		if remaining < timeout {
+			timeout = remaining
+		}
+	}
+	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 	select {
 	case answer := <-pending:
 		if answer.err != nil {
 			return nil, &ResponseError{Code: answer.err.Code, Message: answer.err.Message, Data: answer.err.Data}
+		}
+		if len(answer.result) == 0 {
+			return json.RawMessage("null"), nil
 		}
 		return answer.result, nil
 	case <-ctx.Done():
@@ -801,7 +1031,19 @@ func (c *Client) request(ctx context.Context, method string, params any) (json.R
 		return nil, ctx.Err()
 	case <-timer.C:
 		c.forget(key)
-		return nil, fmt.Errorf("lsp: the request %q timed out after %s", method, c.opts.RequestTimeout)
+		if method == "initialize" || method == "textDocument/hover" || method == "textDocument/completion" || method == "textDocument/references" || method == "textDocument/definition" {
+			c.killProcess()
+			c.failPending(fmt.Errorf("lsp: the request %q timed out", method))
+			errText := fmt.Sprintf("lsp: the request %q timed out after %s", method, timeout)
+			if c.stderrTail != nil {
+				if stderr := strings.TrimSpace(c.stderrTail.String()); stderr != "" {
+					errText += "; Julia stderr: " + stderr
+				}
+			}
+			c.setLastError(errText)
+			c.setState(StateStopped)
+		}
+		return nil, fmt.Errorf("lsp: the request %q timed out after %s", method, timeout)
 	}
 }
 
@@ -918,6 +1160,17 @@ func (c *Client) setLastError(message string) {
 	c.mu.Lock()
 	c.lastError = message
 	c.mu.Unlock()
+}
+
+func (c *Client) withStderr(err error) error {
+	if err == nil || c.stderrTail == nil {
+		return err
+	}
+	output := strings.TrimSpace(c.stderrTail.String())
+	if output == "" || strings.Contains(err.Error(), output) {
+		return err
+	}
+	return fmt.Errorf("%w; Julia stderr: %s", err, output)
 }
 
 // marshalParams encodes the parameters of a message.

@@ -55,6 +55,20 @@ func runFakeServer() int {
 		appendTrace(logPath, "message "+msg.Method)
 		switch msg.Method {
 		case "initialize":
+			var params initializeParams
+			_ = json.Unmarshal(msg.Params, &params)
+			var raw map[string]json.RawMessage
+			_ = json.Unmarshal(msg.Params, &raw)
+			var capabilities map[string]json.RawMessage
+			_ = json.Unmarshal(raw["capabilities"], &capabilities)
+			var workspaceCaps map[string]json.RawMessage
+			_ = json.Unmarshal(capabilities["workspace"], &workspaceCaps)
+			if _, ok := workspaceCaps["configuration"]; ok {
+				appendTrace(logPath, "client advertised workspace configuration")
+			}
+			if os.Getenv("JIDE_LSP_FAKE_DELAY_INITIALIZE") != "" {
+				time.Sleep(150 * time.Millisecond)
+			}
 			writeFakeResult(writer, msg.ID, initializeResult{
 				ServerInfo: &serverInfo{Name: "fake-language-server", Version: "1.0.0"},
 			})

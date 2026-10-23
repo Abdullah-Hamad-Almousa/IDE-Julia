@@ -1,4 +1,4 @@
-import type { DocumentView, LSPCompletionResult, LSPDefinitionResult, LSPHoverResult, LSPReferencesResult, LSPStatusView, SyntaxHighlightsResult, WorkspaceView } from './types';
+import type { DocumentView, LSPCompletionResult, LSPDefinitionResult, LSPDiagnostic, LSPHoverResult, LSPReferencesResult, LSPStatusView, SyntaxHighlightsResult, WorkspaceView } from './types';
 
 interface WailsApp {
   OpenWorkspaceDialog(): Promise<WorkspaceView | null>;
@@ -12,6 +12,9 @@ interface WailsApp {
   CloseFile(path: string, discard: boolean): Promise<void>;
   GetSyntaxHighlights(uri: string, text: string): Promise<SyntaxHighlightsResult>;
   GetLSPStatusView(): Promise<LSPStatusView>;
+  GetLSPDiagnostics(uri: string): Promise<LSPDiagnostic[]>;
+  GetJuliaSourceURI(path: string): Promise<string>;
+  GetPathFromURI(uri: string): Promise<string>;
   RetryLanguageServer(): Promise<void>;
   StartLanguageServer(): Promise<void>;
   LSPHover(uri: string, line: number, character: number): Promise<LSPHoverResult | null>;
@@ -58,6 +61,9 @@ export const backend = {
   closeFile: (path: string, discard: boolean) => bridge().CloseFile(path, discard),
   syntaxHighlights: (uri: string, text: string) => bridge().GetSyntaxHighlights(uri, text),
   lspStatus: () => bridge().GetLSPStatusView(),
+  lspDiagnostics: (uri: string) => bridge().GetLSPDiagnostics(uri),
+  juliaSourceURI: (path: string) => bridge().GetJuliaSourceURI(path),
+  pathFromURI: (uri: string) => bridge().GetPathFromURI(uri),
   retryLanguageServer: () => bridge().RetryLanguageServer(),
   startLanguageServer: () => bridge().StartLanguageServer(),
   lspHover: (uri: string, line: number, character: number) => bridge().LSPHover(uri, line, character),

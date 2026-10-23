@@ -71,9 +71,9 @@ export interface LSPDiagnostic {
   source?: string;
   message: string;
 }
-export interface LSPStatusView { state: string; julia?: string; message?: string }
+export interface LSPStatusView { state: string; julia?: string; message?: string; restartAttempts?: number }
 export interface LSPHoverResult { uri: string; hover?: { contents: { kind: string; value: string }; range?: LSPRange } }
-export interface LSPCompletionItem { label: string; kind?: number; detail?: string; documentation?: unknown; insertText?: string }
+export interface LSPCompletionItem { label: string; kind?: number; detail?: string; documentation?: unknown; insertText?: string; insertTextFormat?: number; textEdit?: { range: LSPRange; text: string }; additionalTextEdits?: Array<{ range: LSPRange; text: string }> }
 export interface LSPCompletionResult { uri: string; isIncomplete?: boolean; items: LSPCompletionItem[] }
 export interface LSPLocation { uri: string; range: LSPRange }
 export interface LSPReferencesResult { locations: LSPLocation[] }

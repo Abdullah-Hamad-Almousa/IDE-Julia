@@ -2,9 +2,14 @@ package lsp
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/jide-dev/jide/internal/jlproc"
 	jide "github.com/jide-dev/jide/proto/jide"
 )
 
@@ -115,6 +120,80 @@ func TestProtocolCompletionOfAnObject(t *testing.T) {
 	}
 	if len(result.Items) != 1 {
 		t.Fatalf("the completion holds %d items, want 1", len(result.Items))
+	}
+}
+
+func TestProtocolCompletionPreservesReplacementEdits(t *testing.T) {
+	result, err := protocolCompletion(json.RawMessage(`{"items":[{"label":"function","insertTextFormat":2,"textEdit":{"range":{"start":{"line":0,"character":1},"end":{"line":0,"character":3}},"newText":"function ${1:name}()"},"additionalTextEdits":[{"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":0}},"newText":"using Base\n"}]}]}`))
+	if err != nil {
+		t.Fatalf("protocolCompletion() error = %v", err)
+	}
+	if len(result.Items) != 1 {
+		t.Fatalf("items = %d, want 1", len(result.Items))
+	}
+	item := result.Items[0]
+	if item.InsertTextFormat != 2 || item.TextEdit == nil || item.TextEdit.Text != "function ${1:name}()" {
+		t.Errorf("completion edit not preserved: %+v", item)
+	}
+	if item.TextEdit.Range.Start.Character != 1 || item.TextEdit.Range.End.Character != 3 {
+		t.Errorf("replacement range = %+v", item.TextEdit.Range)
+	}
+	if len(item.AdditionalTextEdits) != 1 || item.AdditionalTextEdits[0].Text != "using Base\n" {
+		t.Errorf("additional edits = %+v", item.AdditionalTextEdits)
+	}
+}
+
+func TestJuliaCommandUsesToolEnvironmentAndWorkspaceDirectory(t *testing.T) {
+	t.Setenv("APPDATA", t.TempDir())
+	workspaceRoot := filepath.Join(t.TempDir(), "source-only")
+	command := JuliaWorkspaceCommand(jlproc.Runtime{Executable: "julia"}, "", workspaceRoot)
+	if command.Dir != workspaceRoot {
+		t.Errorf("working directory = %q, want %q", command.Dir, workspaceRoot)
+	}
+	if got, want := command.Args[len(command.Args)-3], "--"; got != want {
+		t.Fatalf("separator arg = %q, want %q; args=%v", got, want, command.Args)
+	}
+	if got, want := command.Args[len(command.Args)-2], ""; got != want {
+		t.Errorf("source-only analysis environment = %q, want empty autodetection", got)
+	}
+	toolEnvironment := ""
+	for _, argument := range command.Args {
+		if strings.HasPrefix(argument, "--project=") {
+			toolEnvironment = strings.TrimPrefix(argument, "--project=")
+		}
+	}
+	if toolEnvironment == workspaceRoot || toolEnvironment == "" {
+		t.Errorf("LanguageServer package environment = %q, must be separate from workspace %q", toolEnvironment, workspaceRoot)
+	}
+	if _, err := os.Stat(filepath.Join(toolEnvironment, "symbolcache")); err != nil {
+		t.Errorf("symbol cache directory: %v", err)
+	}
+}
+
+func TestJuliaProjectPathForWorkspace(t *testing.T) {
+	root := t.TempDir()
+	if got := juliaProjectPathForWorkspace("", root); got != "" {
+		t.Errorf("source-only environment = %q, want empty autodetection path", got)
+	}
+	project := filepath.Join(root, "Project.toml")
+	if err := os.WriteFile(project, []byte("[deps]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := juliaProjectPathForWorkspace(project, root); got != root {
+		t.Errorf("project environment = %q, want %q", got, root)
+	}
+}
+
+func TestFileURICanonicalizesWindowsDriveLetter(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows file-URI normalization applies only on Windows")
+	}
+	got := FileURI(`C:\Users\Example\a #1.jl`)
+	if !strings.HasPrefix(got, "file:///c:/") {
+		t.Errorf("FileURI() = %q, want lowercase drive-letter URI", got)
+	}
+	if !strings.Contains(got, "%20") || !strings.Contains(got, "%23") || strings.Contains(got, "c%3A") {
+		t.Errorf("FileURI() did not escape path characters: %q", got)
 	}
 }
 

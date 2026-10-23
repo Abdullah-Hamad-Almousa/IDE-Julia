@@ -100,6 +100,27 @@ func TestJSONSchemaDefsContainEnvelope(t *testing.T) {
 	}
 }
 
+func TestLSPCompletionItemSchemaContainsEdits(t *testing.T) {
+	doc := decodeSchema(t)
+	defs, ok := doc["$defs"].(map[string]any)
+	if !ok {
+		t.Fatalf("$defs is %T, want object", doc["$defs"])
+	}
+	item, ok := defs["lspCompletionItem"].(map[string]any)
+	if !ok {
+		t.Fatalf("lspCompletionItem is %T, want object", defs["lspCompletionItem"])
+	}
+	properties, ok := item["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("lspCompletionItem.properties is %T, want object", item["properties"])
+	}
+	for _, property := range []string{"textEdit", "additionalTextEdits", "insertTextFormat"} {
+		if _, ok := properties[property]; !ok {
+			t.Errorf("lspCompletionItem schema is missing %q", property)
+		}
+	}
+}
+
 func TestJSONSchemaMethodEnumMatchesCatalog(t *testing.T) {
 	doc := decodeSchema(t)
 	props, ok := doc["properties"].(map[string]any)

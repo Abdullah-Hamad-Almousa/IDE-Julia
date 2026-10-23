@@ -797,13 +797,23 @@ var (
 	}
 
 	lspCompletionItemSchema = map[string]any{
-		"label":         requiredString("Text that the editor shows and inserts."),
+		"label":         requiredString("Text that the editor shows."),
 		"kind":          map[string]any{"type": "integer", "description": "Category of the item."},
 		"detail":        optionalString("Short description of the item."),
 		"documentation": optionalString("Long description of the item."),
 		"sortText":      optionalString("Text that orders the item in the list."),
 		"filterText":    optionalString("Text that filters the item while the user types."),
 		"insertText":    optionalString("Text that the editor inserts when it differs from the label."),
+		"textEdit": map[string]any{
+			"$ref":        "#/$defs/lspTextChange",
+			"description": "Optional replacement text and range supplied by the language server.",
+		},
+		"additionalTextEdits": map[string]any{
+			"type":        "array",
+			"items":       map[string]any{"$ref": "#/$defs/lspTextChange"},
+			"description": "Non-overlapping edits applied with the completion edit.",
+		},
+		"insertTextFormat": map[string]any{"type": "integer", "description": "LSP insert text format: 1 plain text, 2 snippet."},
 	}
 
 	lspTextChangeSchema = map[string]any{
