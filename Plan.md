@@ -260,7 +260,7 @@ possible.
 | **M1 WP1** | `workspace` + `vfs`: open folder, detect Julia env (`Project.toml`), fs watching, snapshots | integration test on fixture repo incl. symlinked deps | ✅ done (`cccb1f1`) |
 | **M1 WP2** | `syntax`: vendor tree-sitter-julia via `go-tree-sitter`; lexer-level highlighting API, `DocumentSymbol`, f-string parsing exploits (string interpolation tasks), fold ranges | golden parse-tree tests on corpus of 100 Julia files | ✅ done (`ea37112`) |
 | **M1 WP3** | UI shell: Wails window, Svelte app skeleton (Vite build, typed stores), Monaco editor component wired to `syntax` highlights via Monarch bridge, editor tabs, file tree, status bar (Julia env picker) | manual smoke scripted via Wails; e2e open-edit-save file | ✅ done |
-| **M2 WP4** | `lsp`: spawn/discover LanguageServer.jl via juliaup; LSP client; map diagnostics/hover/completion/references to UI; crash-restart w/ backoff | e2e with real Julia 1.10+ + LanguageServer.jl in CI (tolerance: skip if Julia missing) | ⬜ todo |
+| **M2 WP4** | `lsp`: spawn/discover LanguageServer.jl via juliaup; LSP client; map diagnostics/hover/completion/references to UI; crash-restart w/ backoff | e2e with real Julia 1.10+ + LanguageServer.jl in CI (tolerance: skip if Julia missing) | 🟡 targeted repair committed (`8a56167`); fresh Windows Wails smoke test remains |
 | **M2 WP5** | `index`: trigram search + symbol index; go-to-def fallback when LS warming up; rename (LSP) | bench: 10k-file workspace warm-up < 30 s | ⬜ todo |
 | **M3 WP6** | `pkg`: envs list, add/remove/upgrade packages via Pkg subprocess, Manifest diff view, dependency graph | fixture env operations in temp dir; deterministic output parsing | ⬜ todo |
 | **M4 WP7** | `console`: ConPTY/PTY REPL, multiple sessions per env, re-open sessions, command history | process lifecycle tests incl. kill/restart on both Windows ConPTY and Unix PTY | ⬜ todo |
@@ -273,6 +273,12 @@ possible.
 **Agent operating rules (for the build agents):**
 - Each WP owner passes ownership only when acceptance tests are green; other
   agents review public API diff before merge.
+- WP4's targeted Julia language-server repair is already committed in
+  `8a56167` (following the source-only startup fix in `85513c5`). Do not
+  reapply or replace that repair as part of WP5. WP4's remaining action is the
+  fresh interactive Windows Wails smoke test recorded in `fix-WP4.md` and
+  `docs/known-gaps.md`; only make further WP4 code changes if that test or new
+  evidence identifies a concrete defect.
 - All engine behavior must be testable headless without the UI (the protocol
   is the seam) — same discipline REA needs: evidence over claims.
 - Bounded negative searches: if a Julia dependency is unresolvable (e.g. no
