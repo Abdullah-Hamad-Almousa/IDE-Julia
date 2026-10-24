@@ -93,6 +93,13 @@ func TestJSONSchemaDefsContainEnvelope(t *testing.T) {
 		"lspReferencesParams", "lspReferencesResult", "lspDefinitionParams",
 		"lspDefinitionResult", "lspLocation", "lspRange", "lspPosition",
 		"lspTextChange",
+		"pkgEnvironmentsParams", "pkgEnvironment", "pkgEnvironmentsResult",
+		"pkgOperationParams", "pkgOperationResult", "pkgManifestDiffParams",
+		"pkgPackageUpdate", "pkgManifestDiffResult", "pkgDependencyGraphParams",
+		"pkgDependencyNode", "pkgDependencyGraphResult",
+		"consoleOpenParams", "consoleSessionParams", "consoleInputParams",
+		"consoleOutputParams", "consoleSessionInfo", "consoleOpenResult",
+		"consoleSessionsResult", "consoleHistoryResult", "consoleResizeParams",
 	} {
 		if _, ok := defs[key]; !ok {
 			t.Errorf("$defs is missing %q", key)

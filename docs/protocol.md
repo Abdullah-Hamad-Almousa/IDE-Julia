@@ -101,6 +101,7 @@ calls the shell, `bidirectional`) and the name of its parameter object.
 | `document/save` | client → server | write an open document to disk |
 | `index/search` | client → server | search the workspace text index |
 | `index/symbols` | client → server | symbols of the current document buffer |
+| `index/workspaceSymbols` | client → server | declarations matching a workspace query |
 | `syntax/highlights` | client → server | Julia highlighting tokens and parser diagnostics |
 | `syntax/folds` | client → server | foldable Julia source ranges and parser diagnostics |
 | `lsp/start` | client → server | start the Julia language server of a workspace |
@@ -111,15 +112,27 @@ calls the shell, `bidirectional`) and the name of its parameter object.
 | `lsp/completion` | client → server | completion items at a UTF-16 document position |
 | `lsp/references` | client → server | source references reported by LanguageServer.jl |
 | `lsp/definition` | client → server | source definition reported by LanguageServer.jl |
+| `lsp/rename` | client → server | workspace edit reported by LanguageServer.jl |
 | `console/open` | client → server | open a REPL session |
 | `console/input` | client → server | send input to a REPL session |
 | `console/output` | server → client | publish REPL output |
+| `console/reopen` | client → server | reopen a saved session environment with command history |
+| `console/close` | client → server | stop a session while preserving its history |
+| `console/sessions` | client → server | list active and archived sessions |
+| `console/history` | client → server | return a session's command history |
+| `console/resize` | client → server | resize the session's pseudo-terminal |
 | `run/execute` | client → server | start a run configuration |
 | `run/terminate` | client → server | stop a running process |
 | `dap/breakpoints` | server → client | publish the breakpoint set |
 | `dap/stackTrace` | server → client | publish a stack trace |
 | `testrun/execute` | client → server | start a test run |
 | `extension/list` | client → server | list the registered extension bundles |
+| `pkg/environments` | client → server | discover Julia project environments below roots |
+| `pkg/add` | client → server | add a package with Julia Pkg |
+| `pkg/remove` | client → server | remove a package with Julia Pkg |
+| `pkg/upgrade` | client → server | update one or all packages with Julia Pkg |
+| `pkg/manifestDiff` | client → server | compare two Manifest.toml files |
+| `pkg/dependencyGraph` | client → server | return the resolved package dependency graph |
 
 ### The workspace and document surface
 
@@ -162,6 +175,54 @@ the whole state of the workspace:
 The `project` and the `manifest` members are absent when the workspace has no
 Julia environment.
 
+### Julia package management surface
+
+The `pkg` methods are typed in `proto/jide` and implemented headlessly in
+`internal/pkg`. `pkg/environments` accepts roots that are directories or
+`Project.toml` files; it searches directories without following symlinks,
+skips common generated/dependency folders, and returns projects in path order.
+Each result includes parsed project metadata and an optional parsed manifest.
+
+`pkg/add`, `pkg/remove`, and `pkg/upgrade` select an environment by
+`projectPath`, which may be the project file or its directory. The package
+name is passed as a Julia argument (not interpolated into source or run through
+a shell). An empty package name on `pkg/upgrade` means update all dependencies.
+The result carries combined Pkg output; subprocess errors include that output
+for diagnosis. Pkg runs with startup/history files disabled and activates only
+the selected project environment.
+
+`pkg/manifestDiff` compares two explicitly supplied manifest paths and reports
+added, removed, and changed package records, matching packages by UUID and
+sorting each collection deterministically. `pkg/dependencyGraph` reads the
+project and manifest adjacent to `projectPath`, returning the project's direct
+dependencies and sorted resolved package nodes with their direct edges. These
+methods define the protocol contract; as with the other engine features, they
+are not served over a daemon transport until the dispatcher work package is
+implemented.
+
+### Interactive Julia consoles
+
+`console/open` accepts a project directory or `Project.toml`, an optional
+working directory, and terminal dimensions. It starts Julia with startup files
+disabled, history enabled, the chosen project activated, and an interactive
+REPL attached to a platform PTY (Unix PTY or Windows ConPTY). The returned
+session identifier is used for raw terminal input, resize, close, reopen, and
+history requests. `console/output` notifications stream UTF-8 output chunks
+and process exit information.
+
+Sessions are independent, so several REPLs can run against separate project
+environments. Closed/exited session records and completed input lines remain
+available for the lifetime of the engine process; reopening starts a new Julia
+process in the same environment and carries the prior in-memory history without
+replaying commands. Julia's own REPL history file is also enabled. Session
+metadata and streaming output have typed schema definitions, but these methods
+remain unavailable over `jided` until daemon dispatch/transport is implemented.
+
+`console/reopen` restores a new live process from a retained session's project
+and working directory; `console/sessions` and `console/history` expose archived
+records while the engine process remains alive. These records are not a
+cross-process persistence format.
+
 `workspace/tree` lists the source tree of the workspace. Every entry holds
 the path relative to the root, the absolute path, the resolved real path and
 the flags of the entry:
@@ -198,6 +259,17 @@ saved to disk:
 * `index/symbols` returns nested document symbols for modules, types, functions,
   macros, constants, variables and struct fields. Each symbol has a full
   `range`, a name-only `selectionRange`, and optional child symbols.
+* `index/workspaceSymbols` searches declarations indexed from `.jl` files,
+  case-insensitively (an empty query lists declarations), and returns the
+  declaration name, kind and LSP location.
+  `index/search` uses trigram postings to narrow literal text matches across
+  indexed text files and then verifies the exact case-sensitive substring in
+  source; an empty query returns no matches.
+  Text-search line/column values are one-based and columns count Unicode code
+  points. A zero result limit means unbounded results; callers should provide
+  a UI-appropriate cap.
+  The UI's Wails adapter consumes engine-owned `SearchText` and
+  `SearchWorkspaceSymbols` results; it does not keep a second index.
 * `syntax/highlights` returns non-overlapping lexical tokens. Token categories
   include identifiers, keywords, operators, numbers, comments, strings,
   command literals, escapes and interpolation markers. For `$name` and
@@ -260,6 +332,16 @@ the position. `lsp/completion` answers with the items that the server
 proposes and with the flag that tells the shell to ask again while the user
 types. `lsp/references` and `lsp/definition` answer with the source
 locations that the server reports.
+`lsp/definition` uses the syntax-derived workspace index while the server is
+starting/restarting or stopped, and falls back to that index when a running
+server returns no definition. This fallback resolves indexed declarations by
+name from the currently open workspace and is intentionally best-effort rather
+than Julia semantic analysis.
+`lsp/rename` asks LanguageServer.jl for a `WorkspaceEdit`; it returns either
+URI-keyed edits or versioned document edits. jide does not apply rename edits
+implicitly, so the caller can preview and persist them safely. Empty
+replacement names are rejected. Unsupported resource-operation edits return an
+error instead of being discarded.
 
 The desktop initializes LanguageServer.jl with the workspace folder. It does
 not advertise support for `workspace/configuration`, so LanguageServer.jl uses

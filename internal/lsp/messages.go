@@ -116,6 +116,25 @@ type lspTextEdit struct {
 	NewText string   `json:"newText"`
 }
 
+type renameParams struct {
+	TextDocument textDocumentIdentifier `json:"textDocument"`
+	Position     position               `json:"position"`
+	NewName      string                 `json:"newName"`
+}
+
+type lspWorkspaceEdit struct {
+	Changes         map[string][]lspTextEdit `json:"changes,omitempty"`
+	DocumentChanges []json.RawMessage        `json:"documentChanges,omitempty"`
+}
+
+type lspTextDocumentEdit struct {
+	TextDocument struct {
+		URI     string `json:"uri"`
+		Version *int   `json:"version"`
+	} `json:"textDocument"`
+	Edits []lspTextEdit `json:"edits"`
+}
+
 // lspCompletionList is the answer of a completion request.
 type lspCompletionList struct {
 	IsIncomplete bool                `json:"isIncomplete"`
@@ -239,6 +258,7 @@ type serverCapabilities struct {
 	CompletionProvider json.RawMessage `json:"completionProvider,omitempty"`
 	ReferencesProvider json.RawMessage `json:"referencesProvider,omitempty"`
 	DefinitionProvider json.RawMessage `json:"definitionProvider,omitempty"`
+	RenameProvider     json.RawMessage `json:"renameProvider,omitempty"`
 }
 
 // clientCapabilities describes the features that the engine supports.
@@ -255,6 +275,7 @@ type textDocumentCapabilities struct {
 	Completion         completionCapabilities         `json:"completion"`
 	References         referenceCapabilities          `json:"references"`
 	Definition         definitionCapabilities         `json:"definition"`
+	Rename             renameCapabilities             `json:"rename"`
 	PublishDiagnostics publishDiagnosticsCapabilities `json:"publishDiagnostics"`
 }
 
@@ -294,6 +315,10 @@ type definitionCapabilities struct {
 	DynamicRegistration bool `json:"dynamicRegistration"`
 }
 
+type renameCapabilities struct {
+	PrepareSupport bool `json:"prepareSupport"`
+}
+
 // publishDiagnosticsCapabilities describes the diagnostics that the engine
 // understands.
 type publishDiagnosticsCapabilities struct {
@@ -326,6 +351,7 @@ func defaultCapabilities() clientCapabilities {
 			}},
 			References:         referenceCapabilities{},
 			Definition:         definitionCapabilities{},
+			Rename:             renameCapabilities{PrepareSupport: false},
 			PublishDiagnostics: publishDiagnosticsCapabilities{RelatedInformation: true},
 		},
 		Workspace: workspaceCapabilities{WorkspaceFolders: true},

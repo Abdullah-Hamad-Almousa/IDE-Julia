@@ -591,6 +591,40 @@ func (c *Client) Definition(ctx context.Context, uri string, line, character int
 	return protocolLocations(result)
 }
 
+// Rename asks LanguageServer.jl to rename the symbol at a position. The
+// returned edits are not applied by the client; the caller owns validation,
+// preview, and persistence of the workspace edit.
+func (c *Client) Rename(ctx context.Context, uri string, line, character int, newName string) (jide.LSPRenameResult, error) {
+	if strings.TrimSpace(newName) == "" {
+		return jide.LSPRenameResult{}, errors.New("lsp: replacement name is empty")
+	}
+	if err := c.waitUntilRunning(ctx); err != nil {
+		return jide.LSPRenameResult{}, err
+	}
+	c.documentMu.Lock()
+	defer c.documentMu.Unlock()
+	uri = canonicalURI(uri)
+	raw, err := c.requestTimeout(ctx, "textDocument/rename", renameParams{
+		TextDocument: textDocumentIdentifier{URI: uri},
+		Position:     position{Line: line, Character: character},
+		NewName:      newName,
+	}, c.opts.AnalysisTimeout)
+	if err != nil {
+		return jide.LSPRenameResult{}, err
+	}
+	return protocolWorkspaceEdit(raw)
+}
+
+// RenameRequest handles the typed LSP rename protocol payload.
+func (c *Client) RenameRequest(ctx context.Context, params jide.LSPRenameParams) (jide.LSPRenameResult, error) {
+	return c.Rename(ctx, params.URI, params.Line, params.Character, params.NewName)
+}
+
+// RenameSymbolRequest is the protocol-facing name for RenameRequest.
+func (c *Client) RenameSymbolRequest(ctx context.Context, params jide.LSPRenameParams) (jide.LSPRenameResult, error) {
+	return c.RenameRequest(ctx, params)
+}
+
 // waitUntilRunning prevents semantic requests from overtaking initialize and
 // the replay of documents opened while startup was in progress. The request
 // context supplies the upper bound, so callers can cancel while Julia warms up.
@@ -1031,7 +1065,7 @@ func (c *Client) requestTimeout(ctx context.Context, method string, params any, 
 		return nil, ctx.Err()
 	case <-timer.C:
 		c.forget(key)
-		if method == "initialize" || method == "textDocument/hover" || method == "textDocument/completion" || method == "textDocument/references" || method == "textDocument/definition" {
+		if method == "initialize" || method == "textDocument/hover" || method == "textDocument/completion" || method == "textDocument/references" || method == "textDocument/definition" || method == "textDocument/rename" {
 			c.killProcess()
 			c.failPending(fmt.Errorf("lsp: the request %q timed out", method))
 			errText := fmt.Sprintf("lsp: the request %q timed out after %s", method, timeout)

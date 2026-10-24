@@ -2,6 +2,7 @@ package jide
 
 import (
 	"encoding/json"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -66,6 +67,7 @@ func TestMethodCatalogReferencesThePayloadObjects(t *testing.T) {
 		"documentReadParams":            true,
 		"documentSymbolsParams":         true,
 		"textSearchParams":              true,
+		"workspaceSymbolsParams":        true,
 		"syntaxHighlightsParams":        true,
 		"syntaxFoldsParams":             true,
 	}
@@ -94,6 +96,8 @@ func TestJSONSchemaContainsSyntaxPayloads(t *testing.T) {
 	for _, name := range []string{
 		"syntaxPosition", "syntaxRange", "syntaxToken", "syntaxDiagnostic",
 		"documentSymbolsParams", "documentSymbolsResult", "documentSymbol",
+		"workspaceSymbolsParams", "workspaceSymbolsResult", "workspaceSymbol",
+		"lspRenameParams", "lspRenameResult", "lspDocumentChange",
 		"syntaxHighlightsParams", "syntaxHighlightsResult", "syntaxFoldsParams",
 		"syntaxFoldsResult", "syntaxFoldRange",
 	} {
@@ -122,6 +126,9 @@ func TestJSONSchemaContainsTheWorkspacePayloads(t *testing.T) {
 		"documentReadParams",
 		"documentReadResult",
 		"documentSaveResult",
+		"lspRenameParams",
+		"lspRenameResult",
+		"lspDocumentChange",
 		"juliaProjectInfo",
 		"juliaDependencyInfo",
 		"juliaManifestInfo",
@@ -332,5 +339,86 @@ func TestLSPCompletionItemMarshalsReplacementEdits(t *testing.T) {
 	}
 	if edits, ok := decoded["additionalTextEdits"].([]any); !ok || len(edits) != 1 {
 		t.Errorf("additionalTextEdits = %v, want one edit", decoded["additionalTextEdits"])
+	}
+}
+
+func TestLSPRenameWorkspaceEditPayloadMarshals(t *testing.T) {
+	version := 4
+	result := LSPRenameResult{
+		Changes: map[string][]LSPTextChange{
+			"file:///src/main.jl": {{Range: &LSPRange{Start: LSPPosition{}, End: LSPPosition{Character: 3}}, Text: "new"}},
+		},
+		DocumentChanges: []LSPDocumentChange{{
+			URI: "file:///src/other.jl", Version: &version,
+			Edits: []LSPTextChange{{Text: "new"}},
+		}},
+	}
+	raw, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded LSPRenameResult
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(decoded, result) {
+		t.Fatalf("rename round-trip = %+v, want %+v", decoded, result)
+	}
+}
+
+func TestPkgPayloadsRoundTrip(t *testing.T) {
+	result := PkgEnvironmentsResult{Environments: []PkgEnvironment{{
+		Root:     "/project",
+		Project:  JuliaProjectInfo{Path: "/project/Project.toml", Name: "Demo"},
+		Manifest: &JuliaManifestInfo{Path: "/project/Manifest.toml", Packages: []JuliaManifestPackageInfo{{Name: "Dates", UUID: "dates", Version: "1.0"}}},
+	}}}
+	raw, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded PkgEnvironmentsResult
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(decoded, result) {
+		t.Fatalf("package environment round-trip = %#v, want %#v", decoded, result)
+	}
+
+	operation := PkgOperationParams{ProjectPath: "/project", Package: "Dates"}
+	raw, err = json.Marshal(operation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decodedOperation PkgOperationParams
+	if err := json.Unmarshal(raw, &decodedOperation); err != nil || decodedOperation != operation {
+		t.Fatalf("package operation round-trip = %#v, %v", decodedOperation, err)
+	}
+}
+
+func TestConsolePayloadsRoundTrip(t *testing.T) {
+	input := ConsoleInputParams{SessionID: "session-1", Input: "println(1)\n"}
+	raw, err := json.Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decodedInput ConsoleInputParams
+	if err := json.Unmarshal(raw, &decodedInput); err != nil || decodedInput != input {
+		t.Fatalf("console input round-trip = %#v, %v", decodedInput, err)
+	}
+
+	result := ConsoleSessionsResult{Sessions: []ConsoleSessionInfo{{
+		SessionID: "session-1", WorkingDirectory: "C:/project", State: "running",
+		CreatedAt: "2026-10-24T12:00:00Z", History: []string{"println(1)"},
+	}}}
+	raw, err = json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decodedResult ConsoleSessionsResult
+	if err := json.Unmarshal(raw, &decodedResult); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(decodedResult, result) {
+		t.Fatalf("console sessions round-trip = %#v, want %#v", decodedResult, result)
 	}
 }

@@ -103,7 +103,7 @@ root directory, so every module has to be checked explicitly. The CI matrix
 does exactly this.
 
 ```bash
-for module in proto/jide internal/syntax internal/vfs internal/workspace cmd/jided cmd/jide; do
+for module in proto/jide internal/pkg internal/syntax internal/vfs internal/workspace cmd/jided cmd/jide; do
   ( cd "$module" && go build ./... && go test ./... && go vet ./... ) || exit 1
 done
 ```
@@ -118,9 +118,9 @@ modules by their path prefix instead:
 ```bash
 go work sync        # must succeed, no diff outside go.mod/go.sum
 go list -m all      # lists the workspace modules
-go build ./proto/jide/... ./internal/syntax/... ./internal/vfs/... ./internal/workspace/... ./cmd/jided/... ./cmd/jide/...
-go test  ./proto/jide/... ./internal/syntax/... ./internal/vfs/... ./internal/workspace/... ./cmd/jided/... ./cmd/jide/...
-go vet   ./proto/jide/... ./internal/syntax/... ./internal/vfs/... ./internal/workspace/... ./cmd/jided/... ./cmd/jide/...
+go build ./proto/jide/... ./internal/pkg/... ./internal/syntax/... ./internal/vfs/... ./internal/workspace/... ./cmd/jided/... ./cmd/jide/...
+go test  ./proto/jide/... ./internal/pkg/... ./internal/syntax/... ./internal/vfs/... ./internal/workspace/... ./cmd/jided/... ./cmd/jide/...
+go vet   ./proto/jide/... ./internal/pkg/... ./internal/syntax/... ./internal/vfs/... ./internal/workspace/... ./cmd/jided/... ./cmd/jide/...
 gofmt -l .          # must print nothing
 ```
 

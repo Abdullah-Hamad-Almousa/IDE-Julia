@@ -8,6 +8,172 @@ Format: one section per work package, newest first within a milestone.
 
 ---
 
+## M4 WP7 — interactive Julia console
+
+### Console service is not connected to daemon dispatch or the desktop UI
+
+* **What is missing.** `internal/jlproc` now starts and supervises multiple
+  Julia REPL PTY sessions, streams output through a callback, stores in-memory
+  session/history records, and supports close/reopen/resize. Typed
+  `console/*` protocol methods and schemas are present, but `cmd/jided` still
+  has no dispatcher and the Wails UI has no console panel.
+* **Why.** Daemon transport and desktop console rendering are separate work;
+  WP7 delivers the headless process supervisor and protocol contract.
+* **How to close the gap.** Register a process-wide console manager in daemon
+  dispatch, forward output callbacks as protocol notifications, then add a
+  terminal UI supporting raw input, resize, multiple sessions, and reopen.
+
+### Session history is process-local
+
+* **What is missing.** The manager preserves session records and command
+  history for the lifetime of one engine process, and reopening works while
+  that manager remains alive. It does not persist the history/session catalog
+  across an engine restart.
+* **Why.** WP7's acceptance scope covers re-opening retained sessions and
+  keeping Julia's own history file enabled; cross-process persistence requires
+  a user-data location, retention policy, and compatibility format.
+* **How to close the gap.** Define a versioned per-user console-session store
+  with retention and privacy behavior, then add restart/recovery tests before
+  advertising persistence across engine launches.
+
+### Julia REPL integration is skipped when Julia is unavailable
+
+* **What is missing.** A real Julia REPL test is executable and passes locally
+  with Julia 1.13.1; it explicitly skips on environments without Julia. The
+  process lifecycle and multi-session tests use a deterministic child stub.
+* **Why.** CI does not install Julia, and a fake process cannot establish that
+  Julia's interactive startup behavior remains compatible across releases.
+* **How to close the gap.** Run the existing integration test in a supported
+  Julia-enabled CI job and retain the explicit skip on other runners.
+
+---
+
+## M3 WP6 — Julia package management
+
+### Package operations are headless and not yet connected to the desktop
+
+* **What is missing.** `internal/pkg` implements environment discovery,
+  Pkg add/remove/upgrade, manifest diffing, and dependency graph construction.
+  Typed `pkg/*` protocol methods are documented, but `cmd/jided` has no
+  dispatcher and the Wails UI has no package-management view.
+* **Why.** The daemon transport and desktop package UI are separate work; WP6
+  supplies the headless service and stable protocol contract without creating
+  a competing transport or duplicating engine state in the frontend.
+* **How to close the gap.** Implement daemon dispatch for the `pkg/*` methods,
+  connect the desktop to those requests, and add package list/operation and
+  manifest-diff views backed by engine results.
+
+### Pkg operations require an installed Julia runtime
+
+* **What is missing.** The add/targeted-upgrade/remove integration test passes
+	locally with Julia 1.13.1. It is explicitly skipped on environments without
+	Julia, including CI runners, and a Pkg operation that needs the registry may
+	require network access.
+* **Why.** CI does not install Julia; Pkg itself cannot be reproduced
+	faithfully by a Go mock.
+* **How to close the gap.** Add a supported Julia runtime to a dedicated CI
+	job (with an appropriate package registry policy) and run the integration
+	test there; keep the explicit skip on platform jobs without Julia.
+
+### Pinned lint could not run with the local Go toolchain
+
+* **What is missing.** The `internal/pkg` build, tests, and vet pass, but the
+	pinned golangci-lint v1.64.8 did not complete locally.
+* **Why.** The local Go toolchain is 1.27.0; this linter version fails while
+	decoding the newer Go export data, before reporting any findings. CI pins Go
+	1.24 and runs the same linter version.
+* **How to close the gap.** Verify `golangci-lint run ./...` for
+	`internal/pkg` in CI or with a local Go 1.24 toolchain.
+
+---
+
+## M2 WP5 — workspace index and refactoring
+
+### Index-based definition lookup is syntactic and best-effort
+
+* **What is missing.** The fallback resolves identifier text to indexed
+  declarations, preferring the current file, but it does not model Julia
+  scopes, imports, dispatch, macros, generated names or package dependencies.
+  A name collision can therefore produce multiple or semantically inaccurate
+  targets while LanguageServer.jl is unavailable.
+* **Why.** Tree-sitter supplies syntax, not Julia semantic analysis; semantic
+  resolution remains the responsibility of LanguageServer.jl.
+* **How to close the gap.** Keep the LSP as the authoritative result and use
+  the fallback only during warm-up or when no server result exists. Improve
+  scope/import handling only with concrete acceptance fixtures and without
+  claiming it is equivalent to Julia's semantic resolver.
+
+### Rename workspace edits are returned, not applied
+
+* **What is missing.** The LSP client and typed protocol preserve normal and
+  versioned text edits but deliberately reject resource operations and do not
+  apply edits to disk or open VFS snapshots.
+* **Why.** Safe application needs a preview/confirmation path and atomic
+  multi-document persistence; the existing UI has no refactoring workflow.
+* **How to close the gap.** Add an editor preview/confirm surface, validate
+  document versions and paths under the workspace root, then apply the edit
+  transactionally to disk and open snapshots.
+
+### Index and rename are not wired to the daemon dispatcher
+
+* **What is missing.** Typed request payloads and headless service methods now
+  exist, but `cmd/jided` is still a version stub with no transport or
+  dispatcher. The desktop uses the existing temporary in-process Wails bridge
+  for search and LSP rename.
+* **Why.** Transport and dispatcher ownership is explicitly tracked as a
+  separate gap; WP5 does not implement a partial competing RPC stack.
+* **How to close the gap.** Add the daemon dispatcher/transport work package,
+  register `index/search`, `index/symbols`, `index/workspaceSymbols`,
+  `lsp/definition` and `lsp/rename`, and run typed requests headlessly over
+  that transport.
+
+### Index-backed results are not persisted across process restarts
+
+* **What is missing.** The trigram postings and symbol maps are built in
+  memory and recreated at workspace open; there is no on-disk cache.
+* **Why.** The acceptance scope measures a real workspace warm-up and requires
+  incremental correctness, not cache invalidation or storage migration.
+* **How to close the gap.** Add a versioned, content-verified index cache only
+  after measuring startup cost and defining recovery behavior for partial or
+  stale cache files.
+
+### The 10,000-file acceptance target passed; dedicated benchmark is not recorded
+
+* **What is missing.** No gap remains for the 30-second acceptance target in
+  this environment: the test indexed 10,000 generated Julia files in 9.05 s.
+  The focused Go benchmark has not been recorded separately.
+* **Why.** The acceptance test exercises the real file walk, trigram postings,
+  and Tree-sitter Julia symbol path using the available Octave MinGW compiler.
+* **How to close the gap.** Optionally record the dedicated benchmark on the
+  configured CI toolchain; keep the acceptance test in CI and do not replace
+  its parser path with a mock.
+
+### WP5 index acceptance failures remain outside WP6
+
+* **What is missing.** The affected modules now build and vet with CGO enabled,
+  and syntax tests pass. The full index suite still has seven failing
+  acceptance tests. WP6's package and protocol modules pass the pinned linter
+  with the repository's Go 1.24 version.
+* **Why.** The index failures concern snapshot races, duplicate-symbol results,
+  stale versions, empty queries, and filters; they are unrelated to package
+  management. The local default Go 1.27.0 toolchain is newer than the pinned
+  linter supports, so lint was run with Go 1.24.
+* **How to close the gap.** Fix and rerun the seven index acceptance failures
+  under the separate WP5 task.
+
+### Workspace text search is exposed through the Wails bridge
+
+* **What is missing.** The UI has typed bridge methods and response types for
+  text search, workspace symbols and rename, but no visible search/rename
+  panel yet. The index remains engine-owned and is not duplicated in Svelte.
+* **Why.** WP5 scope is the engine index and LSP rename operation; the existing
+  editor shell has no search-results or refactoring-preview workflow.
+* **How to close the gap.** Add UI views that render the bridge's typed results
+  and provide a safe rename preview/confirmation path; do not cache index data
+  independently in the frontend.
+
+---
+
 ## M2 WP4 — Julia LanguageServer integration
 
 ### Native Wails verification remains outstanding

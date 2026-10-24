@@ -1,4 +1,4 @@
-import type { DocumentView, LSPCompletionResult, LSPDefinitionResult, LSPDiagnostic, LSPHoverResult, LSPReferencesResult, LSPStatusView, SyntaxHighlightsResult, WorkspaceView } from './types';
+import type { DocumentView, LSPCompletionResult, LSPDefinitionResult, LSPDiagnostic, LSPHoverResult, LSPReferencesResult, LSPRenameResult, LSPStatusView, SyntaxHighlightsResult, TextSearchResult, WorkspaceSymbolsResult, WorkspaceView } from './types';
 
 interface WailsApp {
   OpenWorkspaceDialog(): Promise<WorkspaceView | null>;
@@ -21,6 +21,9 @@ interface WailsApp {
   LSPCompletion(uri: string, line: number, character: number): Promise<LSPCompletionResult>;
   LSPReferences(uri: string, line: number, character: number, includeDeclaration: boolean): Promise<LSPReferencesResult>;
   LSPDefinition(uri: string, line: number, character: number): Promise<LSPDefinitionResult>;
+  LSPRename(uri: string, line: number, character: number, newName: string): Promise<LSPRenameResult>;
+  SearchText(query: string, limit: number): Promise<TextSearchResult>;
+  SearchWorkspaceSymbols(query: string, limit: number): Promise<WorkspaceSymbolsResult>;
 }
 
 interface WailsRuntime {
@@ -69,7 +72,10 @@ export const backend = {
   lspHover: (uri: string, line: number, character: number) => bridge().LSPHover(uri, line, character),
   lspCompletion: (uri: string, line: number, character: number) => bridge().LSPCompletion(uri, line, character),
   lspReferences: (uri: string, line: number, character: number, includeDeclaration: boolean) => bridge().LSPReferences(uri, line, character, includeDeclaration),
-  lspDefinition: (uri: string, line: number, character: number) => bridge().LSPDefinition(uri, line, character)
+  lspDefinition: (uri: string, line: number, character: number) => bridge().LSPDefinition(uri, line, character),
+  lspRename: (uri: string, line: number, character: number, newName: string) => bridge().LSPRename(uri, line, character, newName),
+  searchText: (query: string, limit = 100) => bridge().SearchText(query, limit),
+  searchWorkspaceSymbols: (query: string, limit = 100) => bridge().SearchWorkspaceSymbols(query, limit)
 };
 
 export const windowControls = {

@@ -96,6 +96,16 @@ func runFakeServer() int {
 				URI:   "file:///workspace/other.jl",
 				Range: lspRange{Start: position{Line: 2}, End: position{Line: 2, Character: 8}},
 			}})
+		case "textDocument/rename":
+			writeFakeResult(writer, msg.ID, map[string]any{
+				"changes": map[string][]lspTextEdit{
+					"file:///workspace/main.jl": {{Range: lspRange{Start: position{Line: 0}, End: position{Line: 0, Character: 5}}, NewText: "omega"}},
+				},
+				"documentChanges": []any{map[string]any{
+					"textDocument": map[string]any{"uri": "file:///workspace/other.jl", "version": 3},
+					"edits":        []lspTextEdit{{Range: lspRange{Start: position{Line: 2}, End: position{Line: 2, Character: 5}}, NewText: "omega"}},
+				}},
+			})
 		}
 	}
 }

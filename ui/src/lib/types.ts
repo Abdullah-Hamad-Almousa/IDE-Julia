@@ -78,6 +78,13 @@ export interface LSPCompletionResult { uri: string; isIncomplete?: boolean; item
 export interface LSPLocation { uri: string; range: LSPRange }
 export interface LSPReferencesResult { locations: LSPLocation[] }
 export interface LSPDefinitionResult { locations: LSPLocation[] }
+export interface TextSearchMatch { uri: string; line: number; column: number; preview: string }
+export interface TextSearchResult { matches: TextSearchMatch[]; truncated?: boolean }
+export interface WorkspaceSymbol { name: string; kind: string; location: LSPLocation }
+export interface WorkspaceSymbolsResult { symbols: WorkspaceSymbol[]; truncated?: boolean }
+export interface LSPTextChange { range?: LSPRange; text: string }
+export interface LSPDocumentChange { uri: string; version?: number; edits: LSPTextChange[] }
+export interface LSPRenameResult { changes?: Record<string, LSPTextChange[]>; documentChanges?: LSPDocumentChange[] }
 
 export interface FileNode {
   name: string;

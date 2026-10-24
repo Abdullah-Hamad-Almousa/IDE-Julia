@@ -281,20 +281,21 @@ type DocumentSaveResult struct {
 type TextSearchParams struct {
 	// WorkspaceID identifies the workspace to search in.
 	WorkspaceID string `json:"workspaceId"`
-	// Query is the search text.
+	// Query is the case-sensitive literal search text. An empty query returns no
+	// matches.
 	Query string `json:"query"`
-	// Limit caps the number of returned matches. Zero means the engine
-	// default.
+	// Limit caps the number of returned matches. Zero means no explicit limit.
 	Limit int `json:"limit,omitempty"`
 }
 
-// TextSearchMatch is a single hit of a text search.
+// TextSearchMatch is a single hit of a text search. Line and column are
+// one-based; column counts Unicode code points.
 type TextSearchMatch struct {
 	// URI is the URI of the file that contains the hit.
 	URI string `json:"uri"`
 	// Line is the one-based line of the hit.
 	Line int `json:"line"`
-	// Column is the one-based column of the hit.
+	// Column is the one-based Unicode-code-point column of the hit.
 	Column int `json:"column"`
 	// Preview is the trimmed source line of the hit.
 	Preview string `json:"preview"`
@@ -306,6 +307,36 @@ type TextSearchResult struct {
 	Matches []TextSearchMatch `json:"matches"`
 	// Truncated reports that the engine dropped further matches because
 	// the limit was reached.
+	Truncated bool `json:"truncated,omitempty"`
+}
+
+// WorkspaceSymbolsParams are the parameters of MethodIndexWorkspaceSymbols.
+type WorkspaceSymbolsParams struct {
+	// WorkspaceID identifies the workspace to search in.
+	WorkspaceID string `json:"workspaceId"`
+	// Query is matched against declaration names, case-insensitively. Empty
+	// matches all symbols up to the configured result limit.
+	Query string `json:"query"`
+	// Limit caps returned declarations. Zero means no explicit limit.
+	Limit int `json:"limit,omitempty"`
+}
+
+// WorkspaceSymbol is one declaration in the workspace symbol index. Symbol
+// locations use LSP UTF-16 positions.
+type WorkspaceSymbol struct {
+	// Name is the declaration name.
+	Name string `json:"name"`
+	// Kind classifies the Julia declaration.
+	Kind DocumentSymbolKind `json:"kind"`
+	// Location is the declaration's name range.
+	Location LSPLocation `json:"location"`
+}
+
+// WorkspaceSymbolsResult is the result of MethodIndexWorkspaceSymbols.
+type WorkspaceSymbolsResult struct {
+	// Symbols holds matching declarations.
+	Symbols []WorkspaceSymbol `json:"symbols"`
+	// Truncated reports that additional matches were omitted by the limit.
 	Truncated bool `json:"truncated,omitempty"`
 }
 
@@ -753,6 +784,37 @@ type LSPDefinitionResult struct {
 	Locations []LSPLocation `json:"locations"`
 }
 
+// LSPRenameParams are the parameters of MethodLSPRename.
+type LSPRenameParams struct {
+	// URI is the document URI.
+	URI string `json:"uri"`
+	// Line is the zero-based line of the position.
+	Line int `json:"line"`
+	// Character is the zero-based UTF-16 column of the position.
+	Character int `json:"character"`
+	// NewName is the replacement identifier.
+	NewName string `json:"newName"`
+}
+
+// LSPRenameResult is the workspace edit returned by LanguageServer.jl.
+type LSPRenameResult struct {
+	// Changes maps document URIs to edits in that document.
+	Changes map[string][]LSPTextChange `json:"changes,omitempty"`
+	// DocumentChanges preserves document versions for servers that return
+	// versioned text document edits.
+	DocumentChanges []LSPDocumentChange `json:"documentChanges,omitempty"`
+}
+
+// LSPDocumentChange is a versioned group of edits to one document.
+type LSPDocumentChange struct {
+	// URI identifies the edited document.
+	URI string `json:"uri"`
+	// Version is the version used by the server, when known.
+	Version *int `json:"version,omitempty"`
+	// Edits are the replacements to apply to the document.
+	Edits []LSPTextChange `json:"edits"`
+}
+
 // LSPDiagnosticsParams are the parameters of MethodLSPDiagnostics.
 type LSPDiagnosticsParams struct {
 	// URI is the document URI.
@@ -760,4 +822,139 @@ type LSPDiagnosticsParams struct {
 	// Diagnostics holds the problems that the language server reports for
 	// the document.
 	Diagnostics []LSPDiagnostic `json:"diagnostics"`
+}
+
+// ConsoleOpenParams are the parameters of MethodConsoleOpen.
+type ConsoleOpenParams struct {
+	ProjectPath      string `json:"projectPath,omitempty"`
+	WorkingDirectory string `json:"workingDirectory,omitempty"`
+	Width            int    `json:"width,omitempty"`
+	Height           int    `json:"height,omitempty"`
+}
+
+// ConsoleSessionParams identify one console session.
+type ConsoleSessionParams struct {
+	SessionID string `json:"sessionId"`
+}
+
+// ConsoleInputParams are the parameters of MethodConsoleInput.
+type ConsoleInputParams struct {
+	SessionID string `json:"sessionId"`
+	Input     string `json:"input"`
+}
+
+// ConsoleResizeParams are the parameters of MethodConsoleResize.
+type ConsoleResizeParams struct {
+	SessionID string `json:"sessionId"`
+	Width     int    `json:"width"`
+	Height    int    `json:"height"`
+}
+
+// ConsoleOutputParams are output events published by the engine.
+type ConsoleOutputParams struct {
+	SessionID string `json:"sessionId"`
+	Data      string `json:"data,omitempty"`
+	Exited    bool   `json:"exited,omitempty"`
+	ExitCode  int    `json:"exitCode,omitempty"`
+	Error     string `json:"error,omitempty"`
+}
+
+// ConsoleSessionInfo describes a running or archived session.
+type ConsoleSessionInfo struct {
+	SessionID        string   `json:"sessionId"`
+	ProjectPath      string   `json:"projectPath,omitempty"`
+	WorkingDirectory string   `json:"workingDirectory"`
+	ProcessID        int      `json:"processId,omitempty"`
+	State            string   `json:"state"`
+	CreatedAt        string   `json:"createdAt"`
+	ReopenedFrom     string   `json:"reopenedFrom,omitempty"`
+	History          []string `json:"history"`
+}
+
+// ConsoleOpenResult is the started console session.
+type ConsoleOpenResult struct {
+	Session ConsoleSessionInfo `json:"session"`
+}
+
+// ConsoleSessionsResult lists active and archived sessions.
+type ConsoleSessionsResult struct {
+	Sessions []ConsoleSessionInfo `json:"sessions"`
+}
+
+// ConsoleHistoryResult returns the commands recorded for one session.
+type ConsoleHistoryResult struct {
+	SessionID string   `json:"sessionId"`
+	History   []string `json:"history"`
+}
+
+// PkgEnvironmentsParams are the parameters of MethodPkgEnvironments.
+type PkgEnvironmentsParams struct {
+	// Roots are directories or Project.toml files to search.
+	Roots []string `json:"roots"`
+}
+
+// PkgEnvironment describes one discovered Julia project environment.
+type PkgEnvironment struct {
+	// Root is the directory containing Project.toml.
+	Root string `json:"root"`
+	// Project is the parsed project metadata.
+	Project JuliaProjectInfo `json:"project"`
+	// Manifest is the parsed manifest, absent when no manifest exists.
+	Manifest *JuliaManifestInfo `json:"manifest,omitempty"`
+}
+
+// PkgEnvironmentsResult is the result of MethodPkgEnvironments.
+type PkgEnvironmentsResult struct {
+	Environments []PkgEnvironment `json:"environments"`
+}
+
+// PkgOperationParams are the parameters of add, remove and upgrade requests.
+type PkgOperationParams struct {
+	// ProjectPath is a Project.toml path or its containing directory.
+	ProjectPath string `json:"projectPath"`
+	// Package is the package name. It may be empty only for an upgrade-all operation.
+	Package string `json:"package,omitempty"`
+}
+
+// PkgOperationResult is the result of a Pkg subprocess operation.
+type PkgOperationResult struct {
+	Output string `json:"output"`
+}
+
+// PkgManifestDiffParams are the parameters of MethodPkgManifestDiff.
+type PkgManifestDiffParams struct {
+	BeforePath string `json:"beforePath"`
+	AfterPath  string `json:"afterPath"`
+}
+
+// PkgPackageUpdate describes one changed resolved package.
+type PkgPackageUpdate struct {
+	Before JuliaManifestPackageInfo `json:"before"`
+	After  JuliaManifestPackageInfo `json:"after"`
+}
+
+// PkgManifestDiffResult is the result of MethodPkgManifestDiff.
+type PkgManifestDiffResult struct {
+	Added   []JuliaManifestPackageInfo `json:"added"`
+	Removed []JuliaManifestPackageInfo `json:"removed"`
+	Updated []PkgPackageUpdate         `json:"updated"`
+}
+
+// PkgDependencyGraphParams are the parameters of MethodPkgDependencyGraph.
+type PkgDependencyGraphParams struct {
+	ProjectPath string `json:"projectPath"`
+}
+
+// PkgDependencyNode is one resolved package and its direct dependencies.
+type PkgDependencyNode struct {
+	Name         string   `json:"name"`
+	UUID         string   `json:"uuid,omitempty"`
+	Version      string   `json:"version,omitempty"`
+	Dependencies []string `json:"dependencies"`
+}
+
+// PkgDependencyGraphResult is the result of MethodPkgDependencyGraph.
+type PkgDependencyGraphResult struct {
+	DirectDependencies []string            `json:"directDependencies"`
+	Nodes              []PkgDependencyNode `json:"nodes"`
 }

@@ -47,6 +47,7 @@ func TestLSPMethodsAreCatalogued(t *testing.T) {
 		MethodLSPCompletion,
 		MethodLSPReferences,
 		MethodLSPDefinition,
+		MethodLSPRename,
 	} {
 		if !method.IsKnown() {
 			t.Errorf("LSP method %q is not in catalog", method)
@@ -70,6 +71,7 @@ func TestMethodCatalogReferencesTheLanguageServerPayloads(t *testing.T) {
 		"lspCompletionParams":  true,
 		"lspReferencesParams":  true,
 		"lspDefinitionParams":  true,
+		"lspRenameParams":      true,
 	}
 	for _, info := range Methods() {
 		if !strings.HasPrefix(string(info.Name), "lsp/") {
@@ -78,6 +80,68 @@ func TestMethodCatalogReferencesTheLanguageServerPayloads(t *testing.T) {
 		if !known[info.Params] {
 			t.Errorf("method %q refers to the unknown parameter object %q", info.Name, info.Params)
 		}
+	}
+}
+
+func TestIndexMethodsAreCatalogued(t *testing.T) {
+	for _, method := range []Method{MethodIndexSearch, MethodIndexSymbols, MethodIndexWorkspaceSymbols} {
+		if !method.IsKnown() {
+			t.Errorf("index method %q is not in catalog", method)
+		}
+	}
+}
+
+func TestIndexAndRenameMethodsPointToTypedParameters(t *testing.T) {
+	want := map[Method]string{
+		MethodIndexSearch:           "textSearchParams",
+		MethodIndexSymbols:          "documentSymbolsParams",
+		MethodIndexWorkspaceSymbols: "workspaceSymbolsParams",
+		MethodLSPDefinition:         "lspDefinitionParams",
+		MethodLSPRename:             "lspRenameParams",
+	}
+	for method, params := range want {
+		info, ok := method.Info()
+		if !ok || info.Params != params {
+			t.Errorf("%q params = %q, %v; want %q", method, info.Params, ok, params)
+		}
+	}
+}
+
+func TestPackageMethodsAreCataloguedWithTypedParameters(t *testing.T) {
+	want := map[Method]string{
+		MethodPkgEnvironments:    "pkgEnvironmentsParams",
+		MethodPkgAdd:             "pkgOperationParams",
+		MethodPkgRemove:          "pkgOperationParams",
+		MethodPkgUpgrade:         "pkgOperationParams",
+		MethodPkgManifestDiff:    "pkgManifestDiffParams",
+		MethodPkgDependencyGraph: "pkgDependencyGraphParams",
+	}
+	for method, params := range want {
+		info, ok := method.Info()
+		if !ok || info.Direction != DirectionClientToServer || info.Params != params {
+			t.Errorf("%q info = %#v, %v; want client-to-server params %q", method, info, ok, params)
+		}
+	}
+}
+
+func TestConsoleMethodsAreCataloguedWithTypedParameters(t *testing.T) {
+	want := map[Method]string{
+		MethodConsoleOpen:    "consoleOpenParams",
+		MethodConsoleInput:   "consoleInputParams",
+		MethodConsoleOutput:  "consoleOutputParams",
+		MethodConsoleReopen:  "consoleSessionParams",
+		MethodConsoleClose:   "consoleSessionParams",
+		MethodConsoleHistory: "consoleSessionParams",
+		MethodConsoleResize:  "consoleResizeParams",
+	}
+	for method, params := range want {
+		info, ok := method.Info()
+		if !ok || info.Params != params {
+			t.Errorf("%q params = %q, %v; want %q", method, info.Params, ok, params)
+		}
+	}
+	if info, ok := MethodConsoleSessions.Info(); !ok || info.Direction != DirectionClientToServer {
+		t.Errorf("console/sessions info = %#v, %v", info, ok)
 	}
 }
 

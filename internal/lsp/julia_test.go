@@ -117,4 +117,11 @@ func TestJuliaLanguageServerEndToEndWithRealJulia(t *testing.T) {
 	if len(references) < 2 {
 		t.Fatalf("References() returned %d locations, want the declaration and cross-file use", len(references))
 	}
+	rename, err := client.Rename(ctx, uri, 3, 2, "localGreetingRenamed")
+	if err != nil {
+		t.Fatalf("Rename() error = %v", err)
+	}
+	if len(rename.Changes) == 0 && len(rename.DocumentChanges) == 0 {
+		t.Fatal("Rename() returned an empty workspace edit")
+	}
 }

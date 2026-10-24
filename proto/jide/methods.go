@@ -70,10 +70,12 @@ const (
 	// the stored snapshot.
 	MethodDocumentSave Method = "document/save"
 
-	// MethodIndexSearch runs a text search over the workspace index.
+	// MethodIndexSearch searches workspace source text with literal matching.
 	MethodIndexSearch Method = "index/search"
 	// MethodIndexSymbols returns the symbols of a document.
 	MethodIndexSymbols Method = "index/symbols"
+	// MethodIndexWorkspaceSymbols searches declarations in the workspace.
+	MethodIndexWorkspaceSymbols Method = "index/workspaceSymbols"
 
 	// MethodSyntaxHighlights returns lexer-level Julia highlighting tokens.
 	MethodSyntaxHighlights Method = "syntax/highlights"
@@ -96,8 +98,11 @@ const (
 	// symbol at a position.
 	MethodLSPReferences Method = "lsp/references"
 	// MethodLSPDefinition asks the language server for the definition of
-	// the symbol at a position.
+	// the symbol at a position and falls back to the workspace index.
 	MethodLSPDefinition Method = "lsp/definition"
+	// MethodLSPRename asks the language server to rename the symbol at a
+	// position throughout the workspace.
+	MethodLSPRename Method = "lsp/rename"
 	// MethodLSPDiagnostics publishes diagnostics for a document.
 	MethodLSPDiagnostics Method = "lsp/diagnostics"
 
@@ -107,6 +112,16 @@ const (
 	MethodConsoleInput Method = "console/input"
 	// MethodConsoleOutput publishes REPL output.
 	MethodConsoleOutput Method = "console/output"
+	// MethodConsoleReopen restarts a previous REPL session with its history.
+	MethodConsoleReopen Method = "console/reopen"
+	// MethodConsoleClose stops a REPL session.
+	MethodConsoleClose Method = "console/close"
+	// MethodConsoleSessions lists active and archived REPL sessions.
+	MethodConsoleSessions Method = "console/sessions"
+	// MethodConsoleHistory returns command history for a REPL session.
+	MethodConsoleHistory Method = "console/history"
+	// MethodConsoleResize changes the terminal size of a REPL session.
+	MethodConsoleResize Method = "console/resize"
 
 	// MethodRunExecute starts a run configuration.
 	MethodRunExecute Method = "run/execute"
@@ -123,6 +138,19 @@ const (
 
 	// MethodExtensionList lists the registered extension bundles.
 	MethodExtensionList Method = "extension/list"
+
+	// MethodPkgEnvironments lists Julia project environments under the requested roots.
+	MethodPkgEnvironments Method = "pkg/environments"
+	// MethodPkgAdd adds a package to a Julia project environment.
+	MethodPkgAdd Method = "pkg/add"
+	// MethodPkgRemove removes a package from a Julia project environment.
+	MethodPkgRemove Method = "pkg/remove"
+	// MethodPkgUpgrade updates some or all packages in a Julia project environment.
+	MethodPkgUpgrade Method = "pkg/upgrade"
+	// MethodPkgManifestDiff compares two Julia manifests.
+	MethodPkgManifestDiff Method = "pkg/manifestDiff"
+	// MethodPkgDependencyGraph returns the dependency graph of a Julia environment.
+	MethodPkgDependencyGraph Method = "pkg/dependencyGraph"
 )
 
 // methodCatalog is the ordered list of every method known to the protocol.
@@ -211,6 +239,12 @@ var methodCatalog = []MethodInfo{
 		Params:    "documentSymbolsParams",
 	},
 	{
+		Name:      MethodIndexWorkspaceSymbols,
+		Direction: DirectionClientToServer,
+		Summary:   "Search declarations in the workspace symbol index.",
+		Params:    "workspaceSymbolsParams",
+	},
+	{
 		Name:      MethodSyntaxHighlights,
 		Direction: DirectionClientToServer,
 		Summary:   "Return lexer-level Julia highlighting tokens and syntax diagnostics.",
@@ -271,6 +305,12 @@ var methodCatalog = []MethodInfo{
 		Params:    "lspDefinitionParams",
 	},
 	{
+		Name:      MethodLSPRename,
+		Direction: DirectionClientToServer,
+		Summary:   "Rename the symbol at a position using LanguageServer.jl.",
+		Params:    "lspRenameParams",
+	},
+	{
 		Name:      MethodConsoleOpen,
 		Direction: DirectionClientToServer,
 		Summary:   "Open a REPL session for a Julia environment.",
@@ -287,6 +327,35 @@ var methodCatalog = []MethodInfo{
 		Direction: DirectionServerToClient,
 		Summary:   "Publish REPL output.",
 		Params:    "consoleOutputParams",
+	},
+	{
+		Name:      MethodConsoleReopen,
+		Direction: DirectionClientToServer,
+		Summary:   "Reopen a previous REPL session in its Julia environment.",
+		Params:    "consoleSessionParams",
+	},
+	{
+		Name:      MethodConsoleClose,
+		Direction: DirectionClientToServer,
+		Summary:   "Stop a REPL session and preserve its history.",
+		Params:    "consoleSessionParams",
+	},
+	{
+		Name:      MethodConsoleSessions,
+		Direction: DirectionClientToServer,
+		Summary:   "List active and archived REPL sessions.",
+	},
+	{
+		Name:      MethodConsoleHistory,
+		Direction: DirectionClientToServer,
+		Summary:   "Return command history for a REPL session.",
+		Params:    "consoleSessionParams",
+	},
+	{
+		Name:      MethodConsoleResize,
+		Direction: DirectionClientToServer,
+		Summary:   "Resize a REPL session terminal.",
+		Params:    "consoleResizeParams",
 	},
 	{
 		Name:      MethodRunExecute,
@@ -322,6 +391,42 @@ var methodCatalog = []MethodInfo{
 		Name:      MethodExtensionList,
 		Direction: DirectionClientToServer,
 		Summary:   "List the registered extension bundles.",
+	},
+	{
+		Name:      MethodPkgEnvironments,
+		Direction: DirectionClientToServer,
+		Summary:   "List Julia project environments below one or more roots.",
+		Params:    "pkgEnvironmentsParams",
+	},
+	{
+		Name:      MethodPkgAdd,
+		Direction: DirectionClientToServer,
+		Summary:   "Add a package to a Julia project environment through Pkg.",
+		Params:    "pkgOperationParams",
+	},
+	{
+		Name:      MethodPkgRemove,
+		Direction: DirectionClientToServer,
+		Summary:   "Remove a package from a Julia project environment through Pkg.",
+		Params:    "pkgOperationParams",
+	},
+	{
+		Name:      MethodPkgUpgrade,
+		Direction: DirectionClientToServer,
+		Summary:   "Update a named package or all packages through Pkg.",
+		Params:    "pkgOperationParams",
+	},
+	{
+		Name:      MethodPkgManifestDiff,
+		Direction: DirectionClientToServer,
+		Summary:   "Compare two Julia Manifest.toml files.",
+		Params:    "pkgManifestDiffParams",
+	},
+	{
+		Name:      MethodPkgDependencyGraph,
+		Direction: DirectionClientToServer,
+		Summary:   "Return the resolved package dependency graph of an environment.",
+		Params:    "pkgDependencyGraphParams",
 	},
 }
 

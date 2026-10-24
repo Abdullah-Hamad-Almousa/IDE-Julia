@@ -123,6 +123,13 @@ func TestClientEndToEnd(t *testing.T) {
 	if got, want := definition[0].URI, "file:///workspace/other.jl"; got != want {
 		t.Errorf("the URI of the definition = %q, want %q", got, want)
 	}
+	rename, err := client.Rename(ctx, uri, 0, 0, "omega")
+	if err != nil {
+		t.Fatalf("Rename() error = %v", err)
+	}
+	if len(rename.Changes["file:///workspace/main.jl"]) != 1 || len(rename.DocumentChanges) != 1 || rename.DocumentChanges[0].Version == nil || *rename.DocumentChanges[0].Version != 3 {
+		t.Fatalf("Rename() = %+v, want unversioned and versioned edits", rename)
+	}
 
 	if err := client.DidSave(ctx, uri, "f(x) = x + 2\n"); err != nil {
 		t.Fatalf("DidSave() error = %v", err)
@@ -131,7 +138,7 @@ func TestClientEndToEnd(t *testing.T) {
 		t.Fatalf("DidClose() error = %v", err)
 	}
 
-	trace := waitForTrace(t, logPath, "message ", 9)
+	trace := waitForTrace(t, logPath, "message ", 10)
 	for _, method := range []string{
 		"message initialize",
 		"message textDocument/didOpen",
@@ -140,6 +147,7 @@ func TestClientEndToEnd(t *testing.T) {
 		"message textDocument/completion",
 		"message textDocument/references",
 		"message textDocument/definition",
+		"message textDocument/rename",
 		"message textDocument/didSave",
 		"message textDocument/didClose",
 	} {

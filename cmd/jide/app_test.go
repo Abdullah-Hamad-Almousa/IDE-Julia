@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -253,6 +254,109 @@ func TestOpenNonJuliaTextDoesNotUseJuliaParser(t *testing.T) {
 	}
 	if document.Text != content || len(document.Highlights.Diagnostics) != 0 || len(document.Highlights.Tokens) != 0 {
 		t.Errorf("Markdown document = %+v", document)
+	}
+}
+
+func TestOpenJuliaFileIndexesWindowsSafeEscapedURI(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "Julia workspace #1% λ")
+	path := filepath.Join(root, "source file.jl")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("uri_regression = true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	app := NewApp()
+	if _, err := app.OpenWorkspace(root); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.OpenFile(path); err != nil {
+		t.Fatalf("OpenFile() rejected the document URI: %v", err)
+	}
+	result, err := app.SearchText("uri_regression", 10)
+	if err != nil || len(result.Matches) != 1 {
+		t.Fatalf("SearchText() after open = %+v, %v; want the opened file indexed", result, err)
+	}
+}
+
+func TestWorkspaceIndexSearchAndDefinitionFallbackWhileLSPUnavailable(t *testing.T) {
+	root := t.TempDir()
+	definitionPath := filepath.Join(root, "defs.jl")
+	usePath := filepath.Join(root, "use.jl")
+	if err := os.WriteFile(definitionPath, []byte("function greet(name)\n name\nend\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(usePath, []byte("greet(\"Julia\")\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	app := NewApp()
+	if _, err := app.OpenWorkspace(root); err != nil {
+		t.Fatal(err)
+	}
+	search, err := app.SearchText("Julia", 10)
+	if err != nil || len(search.Matches) != 1 || search.Matches[0].URI != pathToURI(usePath) {
+		t.Fatalf("SearchText() = %+v, %v", search, err)
+	}
+	symbols, err := app.SearchWorkspaceSymbols("greet", 10)
+	if err != nil || len(symbols.Symbols) != 1 {
+		t.Fatalf("SearchWorkspaceSymbols() = %+v, %v", symbols, err)
+	}
+	definition, err := app.LSPDefinition(pathToURI(usePath), 0, 1)
+	if err != nil || len(definition.Locations) != 1 || definition.Locations[0].URI != pathToURI(definitionPath) {
+		t.Fatalf("LSPDefinition() while unavailable = %+v, %v", definition, err)
+	}
+	if _, err := app.OpenFile(usePath); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.UpdateFile(definitionPath, "function greet(name)\n name + 1\nend\n"); err != nil {
+		t.Fatal(err)
+	}
+	search, err = app.SearchText("name + 1", 10)
+	if err != nil || len(search.Matches) != 1 {
+		t.Fatalf("SearchText() did not see unsaved document content: %+v, %v", search, err)
+	}
+	definition, err = app.LSPDefinition(pathToURI(usePath), 0, 1)
+	if err != nil || len(definition.Locations) != 1 || definition.Locations[0].Range.Start.Line != 0 {
+		t.Fatalf("LSPDefinition() did not see an unsaved declaration change: %+v, %v", definition, err)
+	}
+	if _, err := app.LSPRename(pathToURI(usePath), 0, 1, "welcome"); err == nil {
+		t.Fatal("LSPRename() succeeded without a language server")
+	}
+	paramsResult, err := app.LSPDefinitionRequest(jide.LSPDefinitionParams{URI: pathToURI(usePath), Line: 0, Character: 1})
+	if err != nil || len(paramsResult.Locations) != 1 {
+		t.Fatalf("LSPDefinitionRequest() = %+v, %v", paramsResult, err)
+	}
+}
+
+func TestIndexAndRenameOperationsReturnTypedJSONPayloads(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "main.jl")
+	if err := os.WriteFile(path, []byte("function greet()\nend\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	app := NewApp()
+	if _, err := app.OpenWorkspace(root); err != nil {
+		t.Fatal(err)
+	}
+	text, err := app.IndexSearch(jide.TextSearchParams{WorkspaceID: root, Query: "greet"})
+	if err != nil || len(text.Matches) != 1 {
+		t.Fatalf("IndexSearch() = %+v, %v", text, err)
+	}
+	workspaceSymbols, err := app.IndexWorkspaceSymbols(jide.WorkspaceSymbolsParams{WorkspaceID: root, Query: "greet"})
+	if err != nil || len(workspaceSymbols.Symbols) != 1 {
+		t.Fatalf("IndexWorkspaceSymbols() = %+v, %v", workspaceSymbols, err)
+	}
+	documentSymbols, err := app.IndexDocumentSymbols(jide.DocumentSymbolsParams{URI: pathToURI(path), Text: "function greet()\nend\n"})
+	if err != nil || len(documentSymbols.Symbols) != 1 {
+		t.Fatalf("IndexDocumentSymbols() = %+v, %v", documentSymbols, err)
+	}
+	for _, payload := range []any{text, workspaceSymbols, documentSymbols} {
+		if _, err := json.Marshal(payload); err != nil {
+			t.Errorf("JSON marshal %T: %v", payload, err)
+		}
+	}
+	if _, err := app.IndexSearch(jide.TextSearchParams{WorkspaceID: "another-workspace", Query: "greet"}); err == nil {
+		t.Fatal("IndexSearch() accepted a mismatched workspace id")
 	}
 }
 

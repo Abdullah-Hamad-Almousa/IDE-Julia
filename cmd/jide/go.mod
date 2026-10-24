@@ -3,6 +3,7 @@ module github.com/jide-dev/jide/cmd/jide
 go 1.24
 
 require (
+	github.com/jide-dev/jide/internal/index v0.0.0
 	github.com/jide-dev/jide/internal/lsp v0.0.0
 	github.com/jide-dev/jide/internal/syntax v0.0.0
 	github.com/jide-dev/jide/internal/vfs v0.0.0
@@ -13,7 +14,9 @@ require (
 
 require (
 	git.sr.ht/~jackmordaunt/go-toast/v2 v2.0.3 // indirect
+	github.com/UserExistsError/conpty v0.1.4 // indirect
 	github.com/bep/debounce v1.2.1 // indirect
+	github.com/creack/pty v1.1.24 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
@@ -50,6 +53,8 @@ require (
 replace github.com/jide-dev/jide/internal/syntax => ../../internal/syntax
 
 replace github.com/jide-dev/jide/internal/lsp => ../../internal/lsp
+
+replace github.com/jide-dev/jide/internal/index => ../../internal/index
 
 replace github.com/jide-dev/jide/internal/jlproc => ../../internal/jlproc
 

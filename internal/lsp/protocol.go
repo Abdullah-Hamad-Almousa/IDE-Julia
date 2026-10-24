@@ -151,6 +151,44 @@ func protocolLocations(raw json.RawMessage) ([]jide.LSPLocation, error) {
 	return nil, fmt.Errorf("lsp: read the answer of the location request: %s", string(raw))
 }
 
+func protocolWorkspaceEdit(raw json.RawMessage) (jide.LSPRenameResult, error) {
+	result := jide.LSPRenameResult{}
+	if len(raw) == 0 || string(raw) == "null" {
+		return result, nil
+	}
+	var edit lspWorkspaceEdit
+	if err := json.Unmarshal(raw, &edit); err != nil {
+		return result, fmt.Errorf("lsp: read the answer of the rename request: %w", err)
+	}
+	if edit.Changes != nil {
+		result.Changes = make(map[string][]jide.LSPTextChange, len(edit.Changes))
+		for uri, edits := range edit.Changes {
+			result.Changes[uri] = protocolTextEdits(edits)
+		}
+	}
+	for _, rawChange := range edit.DocumentChanges {
+		var change lspTextDocumentEdit
+		if err := json.Unmarshal(rawChange, &change); err != nil {
+			return jide.LSPRenameResult{}, fmt.Errorf("lsp: read a versioned rename edit: %w", err)
+		}
+		if change.TextDocument.URI == "" {
+			return jide.LSPRenameResult{}, fmt.Errorf("lsp: rename returned an unsupported resource operation")
+		}
+		result.DocumentChanges = append(result.DocumentChanges, jide.LSPDocumentChange{
+			URI: change.TextDocument.URI, Version: change.TextDocument.Version, Edits: protocolTextEdits(change.Edits),
+		})
+	}
+	return result, nil
+}
+
+func protocolTextEdits(edits []lspTextEdit) []jide.LSPTextChange {
+	converted := make([]jide.LSPTextChange, 0, len(edits))
+	for _, edit := range edits {
+		converted = append(converted, jide.LSPTextChange{Range: protocolRangePointer(edit.Range), Text: edit.NewText})
+	}
+	return converted
+}
+
 // locationLink is the answer of a definition request that names the origin
 // of the symbol.
 type locationLink struct {

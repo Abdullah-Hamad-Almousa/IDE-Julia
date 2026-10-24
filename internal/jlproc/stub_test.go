@@ -1,6 +1,8 @@
 package jlproc
 
 import (
+	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -22,6 +24,8 @@ const (
 	stubVersionEnv = "JIDE_JLPROC_STUB_JULIA_VERSION"
 	// stubStatusEnv holds the output that the fake juliaup reports.
 	stubStatusEnv = "JIDE_JLPROC_STUB_JULIAUP_STATUS"
+	// consoleStubEnv makes this test binary act as a PTY child process.
+	consoleStubEnv = "JIDE_JLPROC_CONSOLE_STUB"
 )
 
 // defaultStubVersion is the version that the fake julia reports when the
@@ -42,7 +46,43 @@ func TestMain(m *testing.M) {
 	if os.Getenv(stubEnv) != "" {
 		os.Exit(runStub())
 	}
+	if os.Getenv(consoleStubEnv) != "" {
+		os.Exit(runConsoleStub())
+	}
 	os.Exit(m.Run())
+}
+
+func runConsoleStub() int {
+	fmt.Fprintln(os.Stdout, "console-ready")
+	reader := bufio.NewReader(os.Stdin)
+	var line strings.Builder
+	lastWasCR := false
+	for {
+		character, err := reader.ReadByte()
+		if err != nil {
+			if !errors.Is(err, io.EOF) {
+				fmt.Fprintln(os.Stderr, err)
+				return 1
+			}
+			return 0
+		}
+		if character == '\n' && lastWasCR {
+			lastWasCR = false
+			continue
+		}
+		if character == '\r' || character == '\n' {
+			lastWasCR = character == '\r'
+			text := line.String()
+			line.Reset()
+			fmt.Fprintln(os.Stdout, "received:"+text)
+			if text == "exit" {
+				return 0
+			}
+			continue
+		}
+		lastWasCR = false
+		line.WriteByte(character)
+	}
 }
 
 // runStub answers the probes of the discovery.
@@ -68,6 +108,9 @@ func runStub() int {
 		fmt.Fprintf(os.Stdout, "julia version %s\n", version)
 		return 0
 	default:
+		if os.Getenv(consoleStubEnv) != "" {
+			return runConsoleStub()
+		}
 		fmt.Fprintf(os.Stderr, "jlproc stub: unknown program %q\n", name)
 		return 2
 	}

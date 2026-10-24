@@ -159,6 +159,9 @@ func buildSchema() schemaDocument {
 		"documentSaveResult":            schemaObject(documentSaveResultSchema),
 		"textSearchParams":              schemaObject(textSearchParamsSchema),
 		"textSearchResult":              schemaObject(textSearchResultSchema),
+		"workspaceSymbolsParams":        schemaObject(workspaceSymbolsParamsSchema),
+		"workspaceSymbolsResult":        schemaObject(workspaceSymbolsResultSchema),
+		"workspaceSymbol":               schemaObject(workspaceSymbolSchema),
 		"syntaxPosition":                schemaObject(syntaxPositionSchema),
 		"syntaxRange":                   schemaObject(syntaxRangeSchema),
 		"syntaxToken":                   schemaObject(syntaxTokenSchema),
@@ -185,6 +188,9 @@ func buildSchema() schemaDocument {
 		"lspReferencesResult":           schemaObject(lspReferencesResultSchema),
 		"lspDefinitionParams":           schemaObject(lspDefinitionParamsSchema),
 		"lspDefinitionResult":           schemaObject(lspDefinitionResultSchema),
+		"lspRenameParams":               schemaObject(lspRenameParamsSchema),
+		"lspRenameResult":               schemaObject(lspRenameResultSchema),
+		"lspDocumentChange":             schemaObject(lspDocumentChangeSchema),
 		"lspDiagnosticsParams":          schemaObject(lspDiagnosticsParamsSchema),
 		"lspPosition":                   schemaObject(lspPositionSchema),
 		"lspRange":                      schemaObject(lspRangeSchema),
@@ -198,6 +204,26 @@ func buildSchema() schemaDocument {
 		"juliaDependencyInfo":           schemaObject(juliaDependencyInfoSchema),
 		"juliaManifestInfo":             schemaObject(juliaManifestInfoSchema),
 		"juliaManifestPackageInfo":      schemaObject(juliaManifestPackageInfoSchema),
+		"pkgEnvironmentsParams":         schemaObject(pkgEnvironmentsParamsSchema),
+		"pkgEnvironment":                schemaObject(pkgEnvironmentSchema),
+		"pkgEnvironmentsResult":         schemaObject(pkgEnvironmentsResultSchema),
+		"pkgOperationParams":            schemaObject(pkgOperationParamsSchema),
+		"pkgOperationResult":            schemaObject(pkgOperationResultSchema),
+		"pkgManifestDiffParams":         schemaObject(pkgManifestDiffParamsSchema),
+		"pkgPackageUpdate":              schemaObject(pkgPackageUpdateSchema),
+		"pkgManifestDiffResult":         schemaObject(pkgManifestDiffResultSchema),
+		"pkgDependencyGraphParams":      schemaObject(pkgDependencyGraphParamsSchema),
+		"pkgDependencyNode":             schemaObject(pkgDependencyNodeSchema),
+		"pkgDependencyGraphResult":      schemaObject(pkgDependencyGraphResultSchema),
+		"consoleOpenParams":             schemaObject(consoleOpenParamsSchema),
+		"consoleSessionParams":          schemaObject(consoleSessionParamsSchema),
+		"consoleInputParams":            schemaObject(consoleInputParamsSchema),
+		"consoleOutputParams":           schemaObject(consoleOutputParamsSchema),
+		"consoleSessionInfo":            schemaObject(consoleSessionInfoSchema),
+		"consoleOpenResult":             schemaObject(consoleOpenResultSchema),
+		"consoleSessionsResult":         schemaObject(consoleSessionsResultSchema),
+		"consoleHistoryResult":          schemaObject(consoleHistoryResultSchema),
+		"consoleResizeParams":           schemaObject(consoleResizeParamsSchema),
 	}
 
 	return schemaDocument{
@@ -529,12 +555,93 @@ var (
 		},
 	}
 
+	pkgEnvironmentsParamsSchema = map[string]any{
+		"roots": map[string]any{"type": "array", "items": requiredString("Directory or Project.toml path to search.")},
+	}
+	pkgEnvironmentSchema = map[string]any{
+		"root":    requiredString("Directory containing Project.toml."),
+		"project": map[string]any{"$ref": "#/$defs/juliaProjectInfo"},
+		"manifest": map[string]any{
+			"$ref":        "#/$defs/juliaManifestInfo",
+			"description": "Parsed manifest; absent when no Manifest.toml exists.",
+		},
+	}
+	pkgEnvironmentsResultSchema = map[string]any{"environments": schemaArrayRef("pkgEnvironment")}
+	pkgOperationParamsSchema    = map[string]any{
+		"projectPath": requiredString("Project.toml path or its containing directory."),
+		"package":     optionalString("Package name; empty only for an upgrade-all operation."),
+	}
+	pkgOperationResultSchema    = map[string]any{"output": requiredString("Combined output from Pkg.")}
+	pkgManifestDiffParamsSchema = map[string]any{
+		"beforePath": requiredString("Path of the previous Manifest.toml."),
+		"afterPath":  requiredString("Path of the current Manifest.toml."),
+	}
+	pkgPackageUpdateSchema = map[string]any{
+		"before": map[string]any{"$ref": "#/$defs/juliaManifestPackageInfo"},
+		"after":  map[string]any{"$ref": "#/$defs/juliaManifestPackageInfo"},
+	}
+	pkgManifestDiffResultSchema = map[string]any{
+		"added":   schemaArrayRef("juliaManifestPackageInfo"),
+		"removed": schemaArrayRef("juliaManifestPackageInfo"),
+		"updated": schemaArrayRef("pkgPackageUpdate"),
+	}
+	pkgDependencyGraphParamsSchema = map[string]any{"projectPath": requiredString("Project.toml path or its containing directory.")}
+	pkgDependencyNodeSchema        = map[string]any{
+		"name":         requiredString("Package name."),
+		"uuid":         optionalString("Package UUID."),
+		"version":      optionalString("Resolved package version."),
+		"dependencies": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+	}
+	pkgDependencyGraphResultSchema = map[string]any{
+		"directDependencies": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+		"nodes":              schemaArrayRef("pkgDependencyNode"),
+	}
+	consoleOpenParamsSchema = map[string]any{
+		"projectPath":      optionalString("Project directory or Project.toml to activate."),
+		"workingDirectory": optionalString("Initial current directory; defaults to the project directory."),
+		"width":            map[string]any{"type": "integer", "minimum": 1, "description": "Initial terminal width; defaults to 80."},
+		"height":           map[string]any{"type": "integer", "minimum": 1, "description": "Initial terminal height; defaults to 24."},
+	}
+	consoleSessionParamsSchema = map[string]any{"sessionId": requiredString("Console session identifier.")}
+	consoleInputParamsSchema   = map[string]any{
+		"sessionId": requiredString("Console session identifier."),
+		"input":     requiredString("Raw terminal input to write."),
+	}
+	consoleOutputParamsSchema = map[string]any{
+		"sessionId": requiredString("Console session identifier."),
+		"data":      optionalString("Terminal output bytes decoded as UTF-8."),
+		"exited":    map[string]any{"type": "boolean", "description": "True when the Julia process has exited."},
+		"exitCode":  map[string]any{"type": "integer", "description": "Process exit code when exited is true."},
+		"error":     optionalString("Read, wait, or process failure, if any."),
+	}
+	consoleSessionInfoSchema = map[string]any{
+		"sessionId":        requiredString("Console session identifier."),
+		"projectPath":      optionalString("Activated project directory."),
+		"workingDirectory": requiredString("Initial current directory."),
+		"processId":        map[string]any{"type": "integer", "description": "Operating-system process identifier."},
+		"state":            map[string]any{"type": "string", "enum": []string{"running", "closing", "exited", "closed"}},
+		"createdAt":        requiredString("UTC session creation timestamp in RFC3339Nano form."),
+		"reopenedFrom":     optionalString("Previous session identifier, when this session was reopened."),
+		"history":          map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+	}
+	consoleOpenResultSchema     = map[string]any{"session": map[string]any{"$ref": "#/$defs/consoleSessionInfo"}}
+	consoleSessionsResultSchema = map[string]any{"sessions": schemaArrayRef("consoleSessionInfo")}
+	consoleHistoryResultSchema  = map[string]any{
+		"sessionId": requiredString("Console session identifier."),
+		"history":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+	}
+	consoleResizeParamsSchema = map[string]any{
+		"sessionId": requiredString("Console session identifier."),
+		"width":     map[string]any{"type": "integer", "minimum": 1, "maximum": 32767},
+		"height":    map[string]any{"type": "integer", "minimum": 1, "maximum": 32767},
+	}
+
 	textSearchParamsSchema = map[string]any{
 		"workspaceId": requiredString("Identifier of the workspace to search in."),
-		"query":       requiredString("Search text."),
+		"query":       requiredString("Case-sensitive literal search text; empty returns no matches."),
 		"limit": map[string]any{
 			"type":        "integer",
-			"description": "Maximum number of matches; zero means the engine default.",
+			"description": "Maximum number of matches; zero means no explicit limit.",
 		},
 	}
 
@@ -546,7 +653,7 @@ var (
 				"properties": map[string]any{
 					"uri":     requiredString("URI of the file containing the hit."),
 					"line":    map[string]any{"type": "integer", "description": "One-based line of the hit."},
-					"column":  map[string]any{"type": "integer", "description": "One-based column of the hit."},
+					"column":  map[string]any{"type": "integer", "description": "One-based Unicode-code-point column of the hit."},
 					"preview": requiredString("Trimmed source line of the hit."),
 				},
 			},
@@ -555,6 +662,31 @@ var (
 			"type":        "boolean",
 			"description": "True when the engine dropped further matches.",
 		},
+	}
+
+	workspaceSymbolsParamsSchema = map[string]any{
+		"workspaceId": requiredString("Identifier of the workspace to search in."),
+		"query":       requiredString("Case-insensitive declaration-name substring; empty matches all symbols."),
+		"limit":       map[string]any{"type": "integer", "description": "Maximum number of symbols; zero means no explicit limit."},
+	}
+
+	workspaceSymbolSchema = map[string]any{
+		"name": requiredString("Declaration name."),
+		"kind": map[string]any{
+			"type": "string",
+			"enum": []string{
+				string(DocumentSymbolModule), string(DocumentSymbolStruct), string(DocumentSymbolType),
+				string(DocumentSymbolFunction), string(DocumentSymbolMacro), string(DocumentSymbolConstant),
+				string(DocumentSymbolVariable), string(DocumentSymbolField),
+			},
+			"description": "Julia declaration category.",
+		},
+		"location": map[string]any{"$ref": "#/$defs/lspLocation"},
+	}
+
+	workspaceSymbolsResultSchema = map[string]any{
+		"symbols":   schemaArrayRef("workspaceSymbol"),
+		"truncated": map[string]any{"type": "boolean", "description": "True when additional matches were omitted by the limit."},
 	}
 
 	syntaxPositionSchema = map[string]any{
@@ -749,6 +881,28 @@ var (
 	lspDefinitionResultSchema = map[string]any{
 		"uri":       requiredString("Document URI."),
 		"locations": schemaArrayRef("lspLocation"),
+	}
+
+	lspRenameParamsSchema = map[string]any{
+		"uri":       requiredString("Document URI."),
+		"line":      map[string]any{"type": "integer", "description": "Zero-based line of the position."},
+		"character": map[string]any{"type": "integer", "description": "Zero-based UTF-16 column of the position."},
+		"newName":   requiredString("Replacement identifier."),
+	}
+
+	lspRenameResultSchema = map[string]any{
+		"changes": map[string]any{
+			"type":                 "object",
+			"additionalProperties": schemaArrayRef("lspTextChange"),
+			"description":          "Unversioned document edits keyed by URI.",
+		},
+		"documentChanges": schemaArrayRef("lspDocumentChange"),
+	}
+
+	lspDocumentChangeSchema = map[string]any{
+		"uri":     requiredString("URI of the edited document."),
+		"version": map[string]any{"type": "integer", "description": "Document version used by the server, when known."},
+		"edits":   schemaArrayRef("lspTextChange"),
 	}
 
 	lspDiagnosticsParamsSchema = map[string]any{

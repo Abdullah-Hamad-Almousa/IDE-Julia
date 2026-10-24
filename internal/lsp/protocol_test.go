@@ -143,6 +143,25 @@ func TestProtocolCompletionPreservesReplacementEdits(t *testing.T) {
 	}
 }
 
+func TestProtocolWorkspaceEditPreservesUnversionedAndVersionedEdits(t *testing.T) {
+	result, err := protocolWorkspaceEdit(json.RawMessage(`{"changes":{"file:///a.jl":[{"range":{"start":{"line":0,"character":1},"end":{"line":0,"character":4}},"newText":"new"}]},"documentChanges":[{"textDocument":{"uri":"file:///b.jl","version":7},"edits":[{"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":3}},"newText":"new"}]}]}`))
+	if err != nil {
+		t.Fatalf("protocolWorkspaceEdit() error = %v", err)
+	}
+	if len(result.Changes["file:///a.jl"]) != 1 || result.Changes["file:///a.jl"][0].Text != "new" {
+		t.Errorf("unversioned edits = %+v", result.Changes)
+	}
+	if len(result.DocumentChanges) != 1 || result.DocumentChanges[0].Version == nil || *result.DocumentChanges[0].Version != 7 || result.DocumentChanges[0].Edits[0].Text != "new" {
+		t.Errorf("versioned edits = %+v", result.DocumentChanges)
+	}
+}
+
+func TestProtocolWorkspaceEditRejectsResourceOperations(t *testing.T) {
+	if _, err := protocolWorkspaceEdit(json.RawMessage(`{"documentChanges":[{"kind":"rename","oldUri":"file:///a.jl","newUri":"file:///b.jl"}]}`)); err == nil {
+		t.Fatal("protocolWorkspaceEdit() accepted an unsupported resource operation")
+	}
+}
+
 func TestJuliaCommandUsesToolEnvironmentAndWorkspaceDirectory(t *testing.T) {
 	t.Setenv("APPDATA", t.TempDir())
 	workspaceRoot := filepath.Join(t.TempDir(), "source-only")
