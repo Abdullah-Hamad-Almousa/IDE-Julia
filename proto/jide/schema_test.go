@@ -97,9 +97,23 @@ func TestJSONSchemaDefsContainEnvelope(t *testing.T) {
 		"pkgOperationParams", "pkgOperationResult", "pkgManifestDiffParams",
 		"pkgPackageUpdate", "pkgManifestDiffResult", "pkgDependencyGraphParams",
 		"pkgDependencyNode", "pkgDependencyGraphResult",
+		"runConfiguration", "runExecuteParams", "runExecuteResult", "runTerminateParams",
+		"runTerminateResult", "runInputParams", "runInputResult", "runOutputParams", "runExitedParams", "testRunExecuteParams",
+		"testRunExecuteResult", "testRunEventParams",
 		"consoleOpenParams", "consoleSessionParams", "consoleInputParams",
 		"consoleOutputParams", "consoleSessionInfo", "consoleOpenResult",
 		"consoleSessionsResult", "consoleHistoryResult", "consoleResizeParams",
+		"dapStartParams", "dapArgumentsParams", "dapSource", "dapSourceBreakpoint",
+		"dapStartResult", "dapBreakpointsResult", "dapContinueResult", "dapScopesResult", "dapScope", "dapEmptyResult",
+		"dapVariablesResult", "dapVariable", "dapEvaluateResult", "dapCapabilities",
+		"dapExceptionBreakpointFilter", "dapSetVariableParams", "dapSetVariableResult",
+		"dapExceptionBreakpointsParams", "dapExceptionInfoResult", "dapExceptionDetails",
+		"dapFunctionBreakpoint", "dapBreakpoint", "dapSetBreakpointsParams",
+		"dapFunctionBreakpointsParams", "dapThreadParams", "dapFrameParams",
+		"dapVariablesParams", "dapEvaluateParams", "dapDisconnectParams", "dapEventParams",
+		"dapStackTraceParams", "dapStackFrame", "dapStackTraceResult", "dapBreakpointEventParams",
+		"dapThreadsParams", "dapThread", "dapThreadsResult",
+		"dapStepInTarget", "dapStepInTargetsResult",
 	} {
 		if _, ok := defs[key]; !ok {
 			t.Errorf("$defs is missing %q", key)
@@ -157,6 +171,17 @@ func TestJSONSchemaMethodEnumMatchesCatalog(t *testing.T) {
 	for _, name := range got {
 		if !Method(name).IsKnown() {
 			t.Errorf("method enum contains the unknown method %q", name)
+		}
+	}
+	defs, ok := doc["$defs"].(map[string]any)
+	if !ok {
+		t.Fatalf("$defs is %T, want object", doc["$defs"])
+	}
+	for _, info := range Methods() {
+		if info.Result != "" {
+			if _, ok := defs[info.Result]; !ok {
+				t.Errorf("method %q result schema %q is missing", info.Name, info.Result)
+			}
 		}
 	}
 	if !slices.Contains(got, string(MethodWorkspaceOpen)) {

@@ -63,10 +63,13 @@ jobs:
           - windows-latest
         module:
           - internal/index
+          - internal/dap
           - internal/jlproc
           - internal/lsp
           - internal/pkg
+          - internal/runconf
           - internal/syntax
+          - internal/testrun
           - internal/vfs
           - internal/workspace
           - proto/jide
@@ -147,13 +150,13 @@ jobs:
       # a module, so the pattern matches nothing. The module prefixes below
       # select every package of the workspace.
       - name: Build the whole workspace
-        run: go build ./cmd/jide/... ./cmd/jided/... ./internal/index/... ./internal/jlproc/... ./internal/lsp/... ./internal/pkg/... ./internal/syntax/... ./internal/vfs/... ./internal/workspace/... ./proto/jide/...
+        run: go build ./cmd/jide/... ./cmd/jided/... ./internal/dap/... ./internal/index/... ./internal/jlproc/... ./internal/lsp/... ./internal/pkg/... ./internal/runconf/... ./internal/syntax/... ./internal/testrun/... ./internal/vfs/... ./internal/workspace/... ./proto/jide/...
 
       - name: Test the whole workspace
-        run: go test ./cmd/jide/... ./cmd/jided/... ./internal/index/... ./internal/jlproc/... ./internal/lsp/... ./internal/pkg/... ./internal/syntax/... ./internal/vfs/... ./internal/workspace/... ./proto/jide/...
+        run: go test ./cmd/jide/... ./cmd/jided/... ./internal/dap/... ./internal/index/... ./internal/jlproc/... ./internal/lsp/... ./internal/pkg/... ./internal/runconf/... ./internal/syntax/... ./internal/testrun/... ./internal/vfs/... ./internal/workspace/... ./proto/jide/...
 
       - name: Vet the whole workspace
-        run: go vet ./cmd/jide/... ./cmd/jided/... ./internal/index/... ./internal/jlproc/... ./internal/lsp/... ./internal/pkg/... ./internal/syntax/... ./internal/vfs/... ./internal/workspace/... ./proto/jide/...
+        run: go vet ./cmd/jide/... ./cmd/jided/... ./internal/dap/... ./internal/index/... ./internal/jlproc/... ./internal/lsp/... ./internal/pkg/... ./internal/runconf/... ./internal/syntax/... ./internal/testrun/... ./internal/vfs/... ./internal/workspace/... ./proto/jide/...
 
   lint:
     name: lint (${{ matrix.os }}, ${{ matrix.module }})
@@ -167,10 +170,13 @@ jobs:
           - windows-latest
         module:
           - internal/index
+          - internal/dap
           - internal/jlproc
           - internal/lsp
           - internal/pkg
+          - internal/runconf
           - internal/syntax
+          - internal/testrun
           - internal/vfs
           - internal/workspace
           - proto/jide

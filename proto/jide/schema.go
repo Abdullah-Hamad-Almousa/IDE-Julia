@@ -224,6 +224,57 @@ func buildSchema() schemaDocument {
 		"consoleSessionsResult":         schemaObject(consoleSessionsResultSchema),
 		"consoleHistoryResult":          schemaObject(consoleHistoryResultSchema),
 		"consoleResizeParams":           schemaObject(consoleResizeParamsSchema),
+		"runConfiguration":              schemaObject(runConfigurationSchema),
+		"runExecuteParams":              schemaObject(runExecuteParamsSchema),
+		"runExecuteResult":              schemaObject(runExecuteResultSchema),
+		"runTerminateParams":            schemaObject(runTerminateParamsSchema),
+		"runTerminateResult":            schemaObject(runTerminateResultSchema),
+		"runInputParams":                schemaObject(runInputParamsSchema),
+		"runInputResult":                schemaObject(runInputResultSchema),
+		"runOutputParams":               schemaObject(runOutputParamsSchema),
+		"runExitedParams":               schemaObject(runExitedParamsSchema),
+		"testRunExecuteParams":          schemaObject(testRunExecuteParamsSchema),
+		"testRunExecuteResult":          schemaObject(testRunExecuteResultSchema),
+		"testRunEventParams":            schemaObject(testRunEventParamsSchema),
+		"dapStartParams":                schemaObject(dapStartParamsSchema),
+		"dapStartResult":                schemaObject(dapStartResultSchema),
+		"dapEmptyResult":                schemaObject(dapEmptyResultSchema),
+		"dapCapabilities":               schemaObject(dapCapabilitiesSchema),
+		"dapExceptionBreakpointFilter":  schemaObject(dapExceptionBreakpointFilterSchema),
+		"dapBreakpointsResult":          schemaObject(dapBreakpointsResultSchema),
+		"dapSetVariableParams":          schemaObject(dapSetVariableParamsSchema),
+		"dapSetVariableResult":          schemaObject(dapSetVariableResultSchema),
+		"dapExceptionBreakpointsParams": schemaObject(dapExceptionBreakpointsParamsSchema),
+		"dapExceptionInfoResult":        schemaObject(dapExceptionInfoResultSchema),
+		"dapExceptionDetails":           schemaObject(dapExceptionDetailsSchema),
+		"dapContinueResult":             schemaObject(dapContinueResultSchema),
+		"dapScopesResult":               schemaObject(dapScopesResultSchema),
+		"dapScope":                      schemaObject(dapScopeSchema),
+		"dapVariablesResult":            schemaObject(dapVariablesResultSchema),
+		"dapVariable":                   schemaObject(dapVariableSchema),
+		"dapEvaluateResult":             schemaObject(dapEvaluateResultSchema),
+		"dapArgumentsParams":            schemaObject(dapArgumentsParamsSchema),
+		"dapSource":                     schemaObject(dapSourceSchema),
+		"dapSourceBreakpoint":           schemaObject(dapSourceBreakpointSchema),
+		"dapFunctionBreakpoint":         schemaObject(dapFunctionBreakpointSchema),
+		"dapBreakpoint":                 schemaObject(dapBreakpointSchema),
+		"dapSetBreakpointsParams":       schemaObject(dapSetBreakpointsParamsSchema),
+		"dapFunctionBreakpointsParams":  schemaObject(dapFunctionBreakpointsParamsSchema),
+		"dapThreadParams":               schemaObject(dapThreadParamsSchema),
+		"dapFrameParams":                schemaObject(dapFrameParamsSchema),
+		"dapVariablesParams":            schemaObject(dapVariablesParamsSchema),
+		"dapEvaluateParams":             schemaObject(dapEvaluateParamsSchema),
+		"dapDisconnectParams":           schemaObject(dapDisconnectParamsSchema),
+		"dapEventParams":                schemaObject(dapEventParamsSchema),
+		"dapStackTraceParams":           schemaObject(dapStackTraceParamsSchema),
+		"dapThreadsParams":              schemaObject(dapThreadsParamsSchema),
+		"dapThread":                     schemaObject(dapThreadSchema),
+		"dapThreadsResult":              schemaObject(dapThreadsResultSchema),
+		"dapStackFrame":                 schemaObject(dapStackFrameSchema),
+		"dapStackTraceResult":           schemaObject(dapStackTraceResultSchema),
+		"dapStepInTarget":               schemaObject(dapStepInTargetSchema),
+		"dapStepInTargetsResult":        schemaObject(dapStepInTargetsResultSchema),
+		"dapBreakpointEventParams":      schemaObject(dapBreakpointEventParamsSchema),
 	}
 
 	return schemaDocument{
@@ -634,6 +685,205 @@ var (
 		"sessionId": requiredString("Console session identifier."),
 		"width":     map[string]any{"type": "integer", "minimum": 1, "maximum": 32767},
 		"height":    map[string]any{"type": "integer", "minimum": 1, "maximum": 32767},
+	}
+	runConfigurationSchema = map[string]any{
+		"id":               optionalString("Stable run configuration identifier; generated when omitted."),
+		"name":             requiredString("Display name for this configuration."),
+		"type":             requiredString("Registered configuration type, such as julia-script, julia-module, or julia-repl."),
+		"projectPath":      optionalString("Julia project directory or Project.toml to activate."),
+		"workingDirectory": optionalString("Process working directory."),
+		"program":          optionalString("Julia source file for julia-script."),
+		"module":           optionalString("Julia module to load for julia-module."),
+		"arguments":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+		"environment":      map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}},
+		"properties":       map[string]any{"type": "object", "additionalProperties": true, "description": "Type-specific values for user-defined run configuration types."},
+	}
+	runExecuteParamsSchema   = map[string]any{"configuration": map[string]any{"$ref": "#/$defs/runConfiguration"}}
+	runExecuteResultSchema   = map[string]any{"runId": requiredString("Unique process run identifier."), "pid": map[string]any{"type": "integer", "description": "Operating-system process identifier."}}
+	runTerminateParamsSchema = map[string]any{"runId": requiredString("Run identifier returned by run/execute.")}
+	runTerminateResultSchema = map[string]any{"terminated": map[string]any{"type": "boolean"}}
+	runInputParamsSchema     = map[string]any{"runId": requiredString("Interactive run identifier."), "input": requiredString("Text to write to process stdin.")}
+	runInputResultSchema     = map[string]any{"written": map[string]any{"type": "boolean"}}
+	runOutputParamsSchema    = map[string]any{
+		"runId": requiredString("Run identifier."), "stream": map[string]any{"type": "string", "enum": []string{"stdout", "stderr"}},
+		"data": requiredString("Output chunk decoded as UTF-8."),
+	}
+	runExitedParamsSchema = map[string]any{
+		"runId": requiredString("Run identifier."), "exitCode": map[string]any{"type": "integer"},
+		"error": optionalString("Process wait error, if any."),
+	}
+	testRunExecuteParamsSchema = map[string]any{
+		"projectPath":      optionalString("Julia project directory or Project.toml to activate."),
+		"workingDirectory": optionalString("Test process working directory; defaults to the test file directory."),
+		"testFile":         requiredString("Julia test source file to include."),
+		"arguments":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+	}
+	testRunExecuteResultSchema = map[string]any{"runId": requiredString("Unique test run identifier for subsequent testrun/event notifications.")}
+	testRunEventParamsSchema   = map[string]any{
+		"runId": requiredString("Test run identifier."), "kind": map[string]any{"type": "string", "enum": []string{"started", "output", "testset-start", "testset-finish", "test", "finished"}},
+		"name": optionalString("Test-set name or assertion expression."), "status": map[string]any{"type": "string", "enum": []string{"passed", "failed", "error", "skipped", "broken"}},
+		"message": optionalString("Formatted test result or diagnostic."), "sourcePath": optionalString("Absolute source file path for failure navigation."),
+		"line": map[string]any{"type": "integer", "minimum": 0}, "passed": map[string]any{"type": "integer", "minimum": 0},
+		"failed": map[string]any{"type": "integer", "minimum": 0}, "errors": map[string]any{"type": "integer", "minimum": 0},
+		"skipped": map[string]any{"type": "integer", "minimum": 0}, "broken": map[string]any{"type": "integer", "minimum": 0},
+		"exitCode": map[string]any{"type": "integer"}, "stream": map[string]any{"type": "string", "enum": []string{"stdout", "stderr"}},
+		"data": optionalString("Raw process output chunk."),
+	}
+	dapStartParamsSchema = map[string]any{
+		"projectPath":      optionalString("Julia project directory or Project.toml used to discover DebugAdapter.jl."),
+		"workingDirectory": optionalString("Working directory used by Julia when starting DebugAdapter.jl."),
+		"executable":       optionalString("Explicit adapter executable path or name; used when projectPath is absent."),
+		"arguments":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+		"directory":        optionalString("Working directory for an explicit adapter executable."),
+	}
+	dapStartResultSchema               = map[string]any{"capabilities": map[string]any{"$ref": "#/$defs/dapCapabilities"}}
+	dapEmptyResultSchema               = map[string]any{}
+	dapBreakpointsResultSchema         = map[string]any{"breakpoints": schemaArrayRef("dapBreakpoint")}
+	dapExceptionBreakpointFilterSchema = map[string]any{
+		"filter":      requiredString("Adapter exception filter identifier."),
+		"label":       requiredString("Display label for the filter."),
+		"description": optionalString("Description of the filter."),
+		"default":     map[string]any{"type": "boolean"},
+	}
+	dapSetVariableParamsSchema = map[string]any{
+		"variablesReference": map[string]any{"type": "integer", "minimum": 0},
+		"name":               requiredString("Variable name or index."),
+		"value":              requiredString("Expression to assign."),
+	}
+	dapSetVariableResultSchema = map[string]any{
+		"value":              requiredString("Formatted value after assignment."),
+		"type":               optionalString("Julia type name."),
+		"variablesReference": map[string]any{"type": "integer"},
+		"namedVariables":     map[string]any{"type": "integer"},
+		"indexedVariables":   map[string]any{"type": "integer"},
+	}
+	dapExceptionBreakpointsParamsSchema = map[string]any{
+		"filters": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+	}
+	dapExceptionInfoResultSchema = map[string]any{
+		"exceptionId": requiredString("Exception identifier."),
+		"description": optionalString("Formatted exception description."),
+		"breakMode":   requiredString("Reason the debugger stopped on the exception."),
+		"details":     map[string]any{"$ref": "#/$defs/dapExceptionDetails"},
+	}
+	dapExceptionDetailsSchema = map[string]any{
+		"message":      optionalString("Exception message."),
+		"typeName":     optionalString("Short exception type name."),
+		"fullTypeName": optionalString("Fully qualified exception type name."),
+		"evaluateName": optionalString("Expression that evaluates to the exception."),
+		"stackTrace":   optionalString("Formatted exception stack trace."),
+	}
+	dapContinueResultSchema  = map[string]any{"allThreadsContinued": map[string]any{"type": "boolean"}}
+	dapScopesResultSchema    = map[string]any{"scopes": schemaArrayRef("dapScope")}
+	dapVariablesResultSchema = map[string]any{"variables": schemaArrayRef("dapVariable")}
+	dapEvaluateResultSchema  = map[string]any{
+		"result": requiredString("Formatted evaluation result."), "type": optionalString("Language type name."),
+		"variablesReference": map[string]any{"type": "integer"},
+	}
+	dapCapabilitiesSchema = map[string]any{
+		"supportsConfigurationDoneRequest":  map[string]any{"type": "boolean"},
+		"supportsFunctionBreakpoints":       map[string]any{"type": "boolean"},
+		"supportsConditionalBreakpoints":    map[string]any{"type": "boolean"},
+		"supportsHitConditionalBreakpoints": map[string]any{"type": "boolean"},
+		"supportsEvaluateForHovers":         map[string]any{"type": "boolean"},
+		"supportsStepBack":                  map[string]any{"type": "boolean"},
+		"supportsSetVariable":               map[string]any{"type": "boolean"},
+		"supportsRestartFrame":              map[string]any{"type": "boolean"},
+		"supportsStepInTargetsRequest":      map[string]any{"type": "boolean"},
+		"supportsExceptionInfoRequest":      map[string]any{"type": "boolean"},
+		"supportsTerminateRequest":          map[string]any{"type": "boolean"},
+		"supportsRestartRequest":            map[string]any{"type": "boolean"},
+		"supportsLogPoints":                 map[string]any{"type": "boolean"},
+		"supportsDataBreakpoints":           map[string]any{"type": "boolean"},
+		"supportsVariablePaging":            map[string]any{"type": "boolean"},
+		"supportsVariableType":              map[string]any{"type": "boolean"},
+		"exceptionBreakpointFilters":        schemaArrayRef("dapExceptionBreakpointFilter"),
+	}
+	dapScopeSchema = map[string]any{
+		"name": requiredString("Scope name."), "variablesReference": map[string]any{"type": "integer"},
+		"presentationHint": optionalString("Scope presentation hint."), "expensive": map[string]any{"type": "boolean"},
+		"namedVariables": map[string]any{"type": "integer"}, "indexedVariables": map[string]any{"type": "integer"},
+	}
+	dapVariableSchema = map[string]any{
+		"name": requiredString("Variable name."), "value": requiredString("Formatted variable value."),
+		"type": optionalString("Julia type name."), "variablesReference": map[string]any{"type": "integer"},
+		"evaluateName": optionalString("Expression evaluating to this variable."),
+	}
+	dapArgumentsParamsSchema = map[string]any{"arguments": map[string]any{"type": "object", "description": "Adapter-specific DAP launch or attach arguments."}}
+	dapSourceSchema          = map[string]any{
+		"name":            optionalString("Display name of the source."),
+		"path":            optionalString("Source path."),
+		"sourceReference": map[string]any{"type": "integer"},
+	}
+	dapSourceBreakpointSchema = map[string]any{
+		"line":         map[string]any{"type": "integer", "minimum": 1},
+		"column":       map[string]any{"type": "integer", "minimum": 1},
+		"condition":    optionalString("Breakpoint expression condition."),
+		"hitCondition": optionalString("Adapter-specific hit-count condition."),
+		"logMessage":   optionalString("Logpoint message instead of stopping."),
+	}
+	dapFunctionBreakpointSchema = map[string]any{
+		"name":         requiredString("Function name or adapter-specific function expression."),
+		"condition":    optionalString("Breakpoint expression condition."),
+		"hitCondition": optionalString("Adapter-specific hit-count condition."),
+	}
+	dapBreakpointSchema = map[string]any{
+		"id":       map[string]any{"type": "integer"},
+		"verified": map[string]any{"type": "boolean"},
+		"message":  optionalString("Adapter explanation or rejection reason."),
+		"source":   map[string]any{"$ref": "#/$defs/dapSource"},
+		"line":     map[string]any{"type": "integer"},
+		"column":   map[string]any{"type": "integer"},
+	}
+	dapSetBreakpointsParamsSchema = map[string]any{
+		"source":      map[string]any{"$ref": "#/$defs/dapSource"},
+		"breakpoints": map[string]any{"type": "array", "items": map[string]any{"$ref": "#/$defs/dapSourceBreakpoint"}},
+	}
+	dapFunctionBreakpointsParamsSchema = map[string]any{"breakpoints": map[string]any{"type": "array", "items": map[string]any{"$ref": "#/$defs/dapFunctionBreakpoint"}}}
+	dapThreadParamsSchema              = map[string]any{
+		"threadId": map[string]any{"type": "integer", "minimum": 1},
+		"targetId": map[string]any{"type": "integer", "minimum": 0},
+	}
+	dapFrameParamsSchema     = map[string]any{"frameId": map[string]any{"type": "integer", "minimum": 0}}
+	dapVariablesParamsSchema = map[string]any{
+		"variablesReference": map[string]any{"type": "integer", "minimum": 0},
+		"start":              map[string]any{"type": "integer", "minimum": 0},
+		"count":              map[string]any{"type": "integer", "minimum": 0},
+	}
+	dapEvaluateParamsSchema = map[string]any{
+		"expression": requiredString("Expression to evaluate."),
+		"frameId":    map[string]any{"type": "integer", "minimum": 0},
+		"context":    optionalString("Evaluation context, for example watch or repl."),
+	}
+	dapDisconnectParamsSchema = map[string]any{"terminateDebuggee": map[string]any{"type": "boolean"}}
+	dapEventParamsSchema      = map[string]any{
+		"event": requiredString("DAP event name."),
+		"body":  map[string]any{"type": "object", "description": "Raw adapter event body."},
+	}
+	dapStackTraceParamsSchema = map[string]any{
+		"threadId":   map[string]any{"type": "integer", "minimum": 1},
+		"startFrame": map[string]any{"type": "integer", "minimum": 0},
+		"levels":     map[string]any{"type": "integer", "minimum": 0},
+	}
+	dapStackFrameSchema = map[string]any{
+		"id":     map[string]any{"type": "integer"},
+		"name":   requiredString("Frame name."),
+		"source": map[string]any{"$ref": "#/$defs/dapSource"},
+		"line":   map[string]any{"type": "integer"},
+		"column": map[string]any{"type": "integer"},
+	}
+	dapStackTraceResultSchema = map[string]any{
+		"stackFrames": schemaArrayRef("dapStackFrame"),
+		"totalFrames": map[string]any{"type": "integer"},
+	}
+	dapStepInTargetSchema          = map[string]any{"id": map[string]any{"type": "integer"}, "label": requiredString("Step-in target label.")}
+	dapStepInTargetsResultSchema   = map[string]any{"targets": schemaArrayRef("dapStepInTarget")}
+	dapThreadsParamsSchema         = map[string]any{}
+	dapThreadSchema                = map[string]any{"id": map[string]any{"type": "integer"}, "name": requiredString("Thread name.")}
+	dapThreadsResultSchema         = map[string]any{"threads": schemaArrayRef("dapThread")}
+	dapBreakpointEventParamsSchema = map[string]any{
+		"reason":     requiredString("Why the breakpoint changed: new, changed, or removed."),
+		"breakpoint": map[string]any{"$ref": "#/$defs/dapBreakpoint"},
 	}
 
 	textSearchParamsSchema = map[string]any{

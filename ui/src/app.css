@@ -125,7 +125,10 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 1px s
 .breadcrumb-file { color: #b0bdcd; font-family: var(--mono); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .language-chip { background: #172231; border: 1px solid #223144; border-radius: 3px; color: #9ab5d4; font-family: var(--mono); font-size: 9px; padding: 2px 5px; }
 .unsaved-label { color: #dca85d; font-size: 9px; }
-.editor-surface { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+.editor-surface { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; overflow: hidden; }
+.editor-region { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+.debug-toggle { background: #15231f; border: 1px solid #2a4b3c; border-radius: 4px; color: #92cdb5; cursor: pointer; font-size: 9px; padding: 3px 8px; }
+.debug-toggle:hover, .debug-toggle.active { background: #1d382d; border-color: #47745d; color: #b1ebd1; }
 
 .welcome-view { align-items: center; display: flex; flex: 1; justify-content: center; min-height: 0; overflow: hidden; position: relative; }
 .welcome-view::before { background-image: linear-gradient(#25303d28 1px, transparent 1px), linear-gradient(90deg, #25303d28 1px, transparent 1px); background-size: 54px 54px; content: ''; inset: 0; mask-image: radial-gradient(ellipse at 60% 46%, #000 5%, transparent 76%); opacity: .34; pointer-events: none; position: absolute; }

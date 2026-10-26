@@ -8,6 +8,64 @@ Format: one section per work package, newest first within a milestone.
 
 ---
 
+## M6 WP9 — Julia run configurations and Test Explorer
+
+### Native desktop verification and Julia-enabled CI remain outstanding
+
+* **What is missing.** The typed script/module/REPL registry, supervised
+  process runner, asynchronous `@testset` result stream, failure source
+  locations, `jided --stdio` dispatch, and Wails Run/Test panel are implemented.
+  The real Julia acceptance test passes locally on Julia 1.13.1 and explicitly
+  skips where Julia is unavailable. `cmd/jide` Go checks could not run on this
+  Windows host because GCC/MinGW is not installed.
+* **Why.** CI does not install Julia, and this workstation has no configured
+  Windows cgo compiler. The desktop panel currently uses the same temporary
+  in-process Wails bridge as the other engine features; the shared WebSocket
+  daemon client is not implemented yet.
+* **How to close the gap.** Run `cmd/jide` build/test/vet/lint on Windows CI
+  with MinGW, run `internal/testrun` integration tests in a Julia-enabled CI
+  job, and migrate the Wails calls to the shared daemon client when that
+  transport is implemented.
+
+---
+
+## M5 WP8 — Debug Adapter Protocol
+
+### Real-adapter coverage is optional outside this environment
+
+* **What is missing.** The headless DAP client, Julia command builder, and
+  `DebugAdapter.jl` availability probe are implemented. The optional real-adapter
+  test uses a pinned DebugAdapter.jl 3.2.1 fixture and covers discovery,
+  initialize, launch, source breakpoints, stepping, stack/scopes, evaluation,
+  supported function/exception breakpoints and variable assignment, and
+  shutdown. Cancellation still cannot abort a request already running inside
+  the adapter.
+* **Why.** DebugAdapter.jl is an external Julia dependency. The integration test
+  is opt-in (`JIDE_DAP_REAL_ADAPTER=1`) so normal Go builds remain headless and
+  do not download Julia packages.
+* **How to close the gap.** Run the opt-in test in a Julia-enabled CI job when
+  one is available; retain the mock DAP tests as the default cross-platform
+  acceptance suite.
+
+### Desktop debugger does not yet use the daemon transport
+
+* **What is missing.** `cmd/jided --stdio` dispatches the typed DAP methods and
+  forwards adapter events, and the desktop has a debugger panel through the
+  temporary Wails binding. The desktop does not yet proxy those calls through
+  the daemon; the general WebSocket transport is not implemented. The desktop
+  Go module's tests/build also could not run on this host because cgo is enabled
+  but no Windows GCC/MinGW compiler is installed.
+* **Why.** Other engine features also still use the shell's temporary
+  in-process adapter, so switching only DAP to a separate process would create
+  a second, inconsistent shell-to-engine path. The missing C compiler is an
+  environment limitation, not a test failure.
+* **How to close the gap.** Implement the shared daemon transport/client and
+  migrate the Wails adapter to it; the DAP methods and stdio dispatcher are
+  ready to serve that client. Run `cmd/jide` build/test/vet on Windows CI with
+  its configured MinGW toolchain.
+
+---
+
 ## M4 WP7 — interactive Julia console
 
 ### Console service is not connected to daemon dispatch or the desktop UI

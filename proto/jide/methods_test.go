@@ -145,6 +145,68 @@ func TestConsoleMethodsAreCataloguedWithTypedParameters(t *testing.T) {
 	}
 }
 
+func TestRunAndTestRunMethodsHaveTypedDirectionAndPayloads(t *testing.T) {
+	want := map[Method]struct {
+		direction Direction
+		params    string
+		result    string
+	}{
+		MethodRunExecute:     {DirectionClientToServer, "runExecuteParams", "runExecuteResult"},
+		MethodRunTerminate:   {DirectionClientToServer, "runTerminateParams", "runTerminateResult"},
+		MethodRunInput:       {DirectionClientToServer, "runInputParams", "runInputResult"},
+		MethodRunOutput:      {DirectionServerToClient, "runOutputParams", ""},
+		MethodRunExited:      {DirectionServerToClient, "runExitedParams", ""},
+		MethodTestRunExecute: {DirectionClientToServer, "testRunExecuteParams", "testRunExecuteResult"},
+		MethodTestRunEvent:   {DirectionServerToClient, "testRunEventParams", ""},
+	}
+	for method, expected := range want {
+		info, ok := method.Info()
+		if !ok || info.Direction != expected.direction || info.Params != expected.params || info.Result != expected.result {
+			t.Errorf("%q info = %#v, %v; want direction=%q params=%q result=%q", method, info, ok, expected.direction, expected.params, expected.result)
+		}
+	}
+}
+
+func TestDAPMethodsAreCataloguedWithTypedParameters(t *testing.T) {
+	want := map[Method]string{
+		MethodDAPStart: "dapStartParams", MethodDAPLaunch: "dapArgumentsParams", MethodDAPAttach: "dapArgumentsParams",
+		MethodDAPSetBreakpoints: "dapSetBreakpointsParams", MethodDAPSetFunctionBreakpoints: "dapFunctionBreakpointsParams",
+		MethodDAPSetExceptionBreakpoints: "dapExceptionBreakpointsParams",
+		MethodDAPContinue:                "dapThreadParams", MethodDAPNext: "dapThreadParams", MethodDAPStepIn: "dapThreadParams",
+		MethodDAPStepOut: "dapThreadParams", MethodDAPPause: "dapThreadParams", MethodDAPScopes: "dapFrameParams",
+		MethodDAPStepInTargets: "dapFrameParams",
+		MethodDAPVariables:     "dapVariablesParams", MethodDAPEvaluate: "dapEvaluateParams",
+		MethodDAPDisconnect:  "dapDisconnectParams",
+		MethodDAPSetVariable: "dapSetVariableParams", MethodDAPExceptionInfo: "dapThreadParams",
+		MethodDAPStackTrace: "dapStackTraceParams", MethodDAPThreads: "dapThreadsParams",
+	}
+	for method, params := range want {
+		info, ok := method.Info()
+		if !ok || info.Direction != DirectionClientToServer || info.Params != params {
+			t.Errorf("%q info = %#v, %v; want client-to-server params %q", method, info, ok, params)
+		}
+	}
+	if info, ok := MethodDAPEvent.Info(); !ok || info.Direction != DirectionServerToClient || info.Params != "dapEventParams" {
+		t.Errorf("DAP event info = %#v, %v", info, ok)
+	}
+	for method, result := range map[Method]string{
+		MethodDAPStart: "dapStartResult", MethodDAPSetBreakpoints: "dapBreakpointsResult",
+		MethodDAPSetFunctionBreakpoints: "dapBreakpointsResult", MethodDAPContinue: "dapContinueResult",
+		MethodDAPSetExceptionBreakpoints: "dapBreakpointsResult", MethodDAPSetVariable: "dapSetVariableResult",
+		MethodDAPExceptionInfo: "dapExceptionInfoResult", MethodDAPLaunch: "dapEmptyResult", MethodDAPAttach: "dapEmptyResult",
+		MethodDAPConfigurationDone: "dapEmptyResult", MethodDAPNext: "dapEmptyResult", MethodDAPStepIn: "dapEmptyResult",
+		MethodDAPStepOut: "dapEmptyResult", MethodDAPPause: "dapEmptyResult", MethodDAPDisconnect: "dapEmptyResult",
+		MethodDAPTerminate:  "dapEmptyResult",
+		MethodDAPStackTrace: "dapStackTraceResult", MethodDAPThreads: "dapThreadsResult",
+		MethodDAPStepInTargets: "dapStepInTargetsResult",
+		MethodDAPScopes:        "dapScopesResult", MethodDAPVariables: "dapVariablesResult", MethodDAPEvaluate: "dapEvaluateResult",
+	} {
+		if info, ok := method.Info(); !ok || info.Result != result {
+			t.Errorf("%q result schema = %q, %v; want %q", method, info.Result, ok, result)
+		}
+	}
+}
+
 func TestMethodsReturnsACopy(t *testing.T) {
 	first := Methods()
 	first[0].Summary = "mutated"

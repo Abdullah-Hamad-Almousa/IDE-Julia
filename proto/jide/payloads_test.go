@@ -78,10 +78,11 @@ func TestMethodCatalogReferencesThePayloadObjects(t *testing.T) {
 		if !strings.HasPrefix(string(info.Name), "workspace/") &&
 			!strings.HasPrefix(string(info.Name), "document/") &&
 			!strings.HasPrefix(string(info.Name), "index/") &&
-			!strings.HasPrefix(string(info.Name), "syntax/") {
+			!strings.HasPrefix(string(info.Name), "syntax/") &&
+			!strings.HasPrefix(string(info.Name), "dap/") {
 			continue
 		}
-		if !known[info.Params] {
+		if info.Params != "" && !known[info.Params] && !strings.HasPrefix(info.Params, "dap") {
 			t.Errorf("method %q refers to the unknown parameter object %q", info.Name, info.Params)
 		}
 	}
@@ -138,6 +139,94 @@ func TestJSONSchemaContainsTheWorkspacePayloads(t *testing.T) {
 		if _, ok := defs[name]; !ok {
 			t.Errorf("$defs is missing %q", name)
 		}
+	}
+}
+
+func TestDAPStartParamsSupportJuliaDiscoveryAndExplicitAdapters(t *testing.T) {
+	params := DAPStartParams{
+		ProjectPath:      "C:/workspace/Project.toml",
+		WorkingDirectory: "C:/workspace",
+		Executable:       "debug-adapter",
+		Arguments:        []string{"--stdio"},
+		Directory:        "C:/adapter",
+	}
+	raw, err := json.Marshal(params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded DAPStartParams
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(decoded, params) {
+		t.Fatalf("DAPStartParams round trip = %+v, want %+v", decoded, params)
+	}
+
+	doc := decodeSchema(t)
+	defs, ok := doc["$defs"].(map[string]any)
+	if !ok {
+		t.Fatalf("schema $defs = %T, want object", doc["$defs"])
+	}
+	start, ok := defs["dapStartParams"].(map[string]any)
+	if !ok {
+		t.Fatalf("dapStartParams schema = %T, want object", defs["dapStartParams"])
+	}
+	properties, ok := start["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("dapStartParams properties = %T, want object", start["properties"])
+	}
+	for _, field := range []string{"projectPath", "workingDirectory", "executable", "arguments", "directory"} {
+		if _, ok := properties[field]; !ok {
+			t.Errorf("dapStartParams schema is missing %q", field)
+		}
+	}
+}
+
+func TestRunAndTestRunPayloadsRoundTrip(t *testing.T) {
+	configuration := RunConfiguration{
+		ID: "tests", Name: "All tests", Type: "julia-script", ProjectPath: "C:/fixture",
+		Program: "C:/fixture/test/runtests.jl", Arguments: []string{"--verbose"},
+		Environment: map[string]string{"JIDE_FIXTURE": "1"},
+		Properties:  map[string]json.RawMessage{"custom": json.RawMessage(`{"value":1}`)},
+	}
+	payloads := []any{
+		RunExecuteParams{Configuration: configuration}, RunExecuteResult{RunID: "run-1", PID: 42},
+		RunTerminateParams{RunID: "run-1"}, RunTerminateResult{Terminated: true},
+		RunInputParams{RunID: "run-1", Input: "println(1)\n"}, RunInputResult{Written: true},
+		RunOutputParams{RunID: "run-1", Stream: "stdout", Data: "hello\n"},
+		RunExitedParams{RunID: "run-1", ExitCode: 0},
+		TestRunExecuteParams{ProjectPath: "C:/fixture", TestFile: "C:/fixture/test/runtests.jl"},
+		TestRunExecuteResult{RunID: "test-1"},
+		TestRunEventParams{RunID: "test-1", Kind: "test", Status: "failed", SourcePath: "C:/fixture/test/runtests.jl", Line: 17, Failed: 1},
+	}
+	for _, value := range payloads {
+		raw, err := json.Marshal(value)
+		if err != nil {
+			t.Errorf("marshal %T: %v", value, err)
+			continue
+		}
+		if !json.Valid(raw) {
+			t.Errorf("marshal %T returned invalid JSON: %s", value, raw)
+		}
+	}
+
+	raw, err := json.Marshal(RunExecuteParams{Configuration: configuration})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded RunExecuteParams
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Configuration.Type != configuration.Type || decoded.Configuration.Program != configuration.Program || string(decoded.Configuration.Properties["custom"]) != string(configuration.Properties["custom"]) {
+		t.Fatalf("run configuration payload round trip = %+v", decoded)
+	}
+	var failure TestRunEventParams
+	if err := json.Unmarshal([]byte(`{"runId":"test-1","kind":"test","status":"failed","sourcePath":"/tmp/runtests.jl","line":17}`), &failure); err != nil {
+		t.Fatal(err)
+	}
+	if failure.SourcePath != "/tmp/runtests.jl" || failure.Line != 17 || failure.Status != "failed" {
+		t.Fatalf("failure navigation payload = %+v", failure)
 	}
 }
 
@@ -420,5 +509,47 @@ func TestConsolePayloadsRoundTrip(t *testing.T) {
 	}
 	if !reflect.DeepEqual(decodedResult, result) {
 		t.Fatalf("console sessions round-trip = %#v, want %#v", decodedResult, result)
+	}
+}
+
+func TestDAPPayloadsRoundTrip(t *testing.T) {
+	payload := DAPSetBreakpointsParams{
+		Source:      DAPSource{Name: "main.jl", Path: "C:/project/main.jl"},
+		Breakpoints: []DAPSourceBreakpoint{{Line: 12, Condition: "x > 2"}},
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded DAPSetBreakpointsParams
+	if err := json.Unmarshal(raw, &decoded); err != nil || !reflect.DeepEqual(decoded, payload) {
+		t.Fatalf("DAP breakpoint round-trip = %#v, %v", decoded, err)
+	}
+	event := DAPEventParams{Event: "stopped", Body: json.RawMessage(`{"reason":"breakpoint","threadId":1}`)}
+	raw, err = json.Marshal(event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decodedEvent DAPEventParams
+	if err := json.Unmarshal(raw, &decodedEvent); err != nil || !reflect.DeepEqual(decodedEvent, event) {
+		t.Fatalf("DAP event round-trip = %#v, %v", decodedEvent, err)
+	}
+	result := DAPStartResult{Capabilities: DAPCapabilities{SupportsFunctionBreakpoints: true, SupportsConfigurationDoneRequest: true}}
+	raw, err = json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decodedResult DAPStartResult
+	if err := json.Unmarshal(raw, &decodedResult); err != nil || !reflect.DeepEqual(decodedResult, result) {
+		t.Fatalf("DAP start result round-trip = %#v, %v", decodedResult, err)
+	}
+	setVariable := DAPSetVariableParams{VariablesReference: 3, Name: "x", Value: "42"}
+	raw, err = json.Marshal(setVariable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decodedSetVariable DAPSetVariableParams
+	if err := json.Unmarshal(raw, &decodedSetVariable); err != nil || decodedSetVariable != setVariable {
+		t.Fatalf("DAP set-variable round-trip = %#v, %v", decodedSetVariable, err)
 	}
 }

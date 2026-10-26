@@ -27,6 +27,12 @@ Unix domain socket or a TCP connection without modification.
 Framing, reconnection, authentication and the dispatch loop arrive with the
 work packages that own them; WP0 only defines the messages.
 
+`jided --stdio` is a working line-delimited JSON-RPC transport for DAP, run, and
+test-run methods. It sends one JSON-RPC object per input line and may emit
+asynchronous output/test notifications on stdout. Methods outside those
+namespaces return `methodNotFound`; the canonical WebSocket transport and the
+other daemon services are not implemented yet.
+
 ## Envelope
 
 A **request** is a JSON object:
@@ -123,9 +129,34 @@ calls the shell, `bidirectional`) and the name of its parameter object.
 | `console/resize` | client → server | resize the session's pseudo-terminal |
 | `run/execute` | client → server | start a run configuration |
 | `run/terminate` | client → server | stop a running process |
-| `dap/breakpoints` | server → client | publish the breakpoint set |
-| `dap/stackTrace` | server → client | publish a stack trace |
+| `run/input` | client → server | write stdin to an interactive run process |
+| `run/output` | server → client | stream stdout/stderr chunks |
+| `run/exited` | server → client | publish process exit status |
+| `dap/start` | client → server | start and initialize a DAP adapter |
+| `dap/launch` | client → server | launch a debuggee |
+| `dap/attach` | client → server | attach to a running debuggee |
+| `dap/setBreakpoints` | client → server | replace source breakpoints |
+| `dap/setFunctionBreakpoints` | client → server | replace function breakpoints |
+| `dap/setExceptionBreakpoints` | client → server | select advertised exception filters |
+| `dap/configurationDone` | client → server | complete initial debug configuration |
+| `dap/threads` | client → server | list debuggee threads |
+| `dap/continue` | client → server | resume a stopped thread |
+| `dap/next` | client → server | step over |
+| `dap/stepIn` | client → server | step into |
+| `dap/stepInTargets` | client → server | list selectable call targets for step-into |
+| `dap/stepOut` | client → server | step out |
+| `dap/pause` | client → server | pause a running thread |
+| `dap/stackTrace` | client → server | request stack frames |
+| `dap/scopes` | client → server | request frame scopes |
+| `dap/variables` | client → server | expand variables |
+| `dap/evaluate` | client → server | evaluate an expression |
+| `dap/setVariable` | client → server | assign a value to a debug variable |
+| `dap/exceptionInfo` | client → server | inspect the current exception stop |
+| `dap/terminate` | client → server | terminate the debuggee |
+| `dap/disconnect` | client → server | end the debug session |
+| `dap/event` | server → client | forward adapter events |
 | `testrun/execute` | client → server | start a test run |
+| `testrun/event` | server → client | stream test sets, results, output, and completion |
 | `extension/list` | client → server | list the registered extension bundles |
 | `pkg/environments` | client → server | discover Julia project environments below roots |
 | `pkg/add` | client → server | add a package with Julia Pkg |
@@ -222,6 +253,56 @@ remain unavailable over `jided` until daemon dispatch/transport is implemented.
 and working directory; `console/sessions` and `console/history` expose archived
 records while the engine process remains alive. These records are not a
 cross-process persistence format.
+
+### Julia run configurations and Test Explorer
+
+`run/execute` accepts a typed `configuration` object. The built-in types are
+`julia-script` (run a `.jl` file), `julia-module` (load a named module in the
+selected project), and `julia-repl` (start an interactive Julia process). Each
+configuration can select a project and working directory, pass arguments and
+environment overrides, and retain type-specific JSON values in `properties`.
+Additional in-process run types can be registered with validation and
+invocation-builder functions. Output is streamed as `run/output`; `run/exited`
+reports the exit code and any wait error. REPL run configurations accept stdin
+via `run/input` but do not allocate a terminal; the dedicated
+`console/*` service remains the PTY-backed interactive shell.
+
+`testrun/execute` runs a Julia test source file in an optional project and
+returns a run identifier. `testrun/event` streams process output, test-set
+boundaries, individual `Test` results, and final counts (pass/fail/error/
+skipped/broken). Failed assertions include `sourcePath` and `line`, allowing a
+Test Explorer to navigate directly to the failing expression. The Julia
+`Test` standard library is used; no third-party test-runner package is required.
+`cmd/jided --stdio` dispatches these methods and forwards notifications, while
+the desktop shell still needs a shared daemon client before its temporary Wails
+bridge can be replaced.
+
+### Debug Adapter Protocol
+
+`internal/dap` owns the DAP `Content-Length` framing, adapter process, concurrent
+request correlation, event forwarding, and adapter rejection errors. Startup
+performs `initialize` and returns the adapter capabilities. The initial timeout
+policy is 10 seconds for initialize/launch, 20 seconds for attach, 30 seconds
+for evaluate, and 10 seconds for breakpoint verification and other requests;
+callers can override each value.
+
+The typed debug methods cover source and function breakpoints, launch/attach,
+threads, stepping, pause/continue, stack frames, scopes, variables, evaluate,
+exception breakpoints/details, terminate, disconnect, and
+adapter events. `dap/event` carries the adapter event name and
+its raw body. `dap/start` takes either a Julia `projectPath` (and optional
+`workingDirectory`) or an explicit adapter executable and arguments. For a
+project, the Julia service locates Julia, verifies that DebugAdapter.jl is
+available in the selected environment, and launches its documented
+`DebugSession` over a loopback TCP connection bridged to the client transport.
+After `dap/launch` or `dap/attach`, clients wait
+for the adapter's `initialized` event, apply all source/function/exception
+breakpoints, then call `dap/configurationDone` before execution can proceed.
+`cmd/jided --stdio` dispatches the complete typed DAP method set and forwards
+adapter events. The desktop also has a Wails-bound Julia debugger panel with
+breakpoints, stepping, stack/scopes/variables, and expression evaluation; it
+still uses the shell's temporary in-process adapter rather than the daemon
+transport.
 
 `workspace/tree` lists the source tree of the workspace. Every entry holds
 the path relative to the root, the absolute path, the resolved real path and

@@ -11,8 +11,10 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/jide-dev/jide/internal/dap"
 	"github.com/jide-dev/jide/internal/index"
 	"github.com/jide-dev/jide/internal/lsp"
+	"github.com/jide-dev/jide/internal/runconf"
 	"github.com/jide-dev/jide/internal/syntax"
 	"github.com/jide-dev/jide/internal/vfs"
 	"github.com/jide-dev/jide/internal/workspace"
@@ -47,6 +49,12 @@ type App struct {
 	lspStarting   bool
 	active        *workspaceSession
 	lsp           *lsp.Client
+	dapClient     *dap.Client
+	dapCaps       dap.Capabilities
+	dapGeneration uint64
+	runProcesses  map[string]*runconf.Process
+	runCancel     map[string]context.CancelFunc
+	testRunCancel map[string]context.CancelFunc
 	diagnostics   map[string][]jide.LSPDiagnostic
 }
 
@@ -113,16 +121,25 @@ func (a *App) startup(ctx context.Context) {
 // shutdown stops the workspace language server before the desktop exits.
 func (a *App) shutdown(_ context.Context) {
 	a.mu.Lock()
+	runState := a.takeRunStateLocked()
 	manager := a.lsp
+	debugger := a.dapClient
 	cancel := a.ctxCancel
 	a.lsp = nil
+	a.dapClient = nil
+	a.dapCaps = dap.Capabilities{}
+	a.dapGeneration++
 	a.ctxCancel = nil
 	a.lspContext = nil
 	a.lspGeneration++
 	a.lspStarting = false
 	a.mu.Unlock()
+	stopRunState(runState)
 	if cancel != nil {
 		cancel()
+	}
+	if debugger != nil {
+		_ = debugger.Close()
 	}
 	if manager != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -188,17 +205,26 @@ func (a *App) OpenWorkspace(root string) (*WorkspaceView, error) {
 
 	a.mu.Lock()
 	oldLSP := a.lsp
+	oldDAP := a.dapClient
 	oldCancel := a.ctxCancel
 	a.lsp = nil
+	a.dapClient = nil
+	a.dapCaps = dap.Capabilities{}
+	a.dapGeneration++
 	a.ctxCancel = nil
 	a.lspContext = nil
 	a.diagnostics = make(map[string][]jide.LSPDiagnostic)
 	a.active = session
 	a.lspGeneration++
 	a.lspStarting = false
+	oldRunState := a.takeRunStateLocked()
 	view := makeWorkspaceView(session, tree)
 	desktopContext := a.ctx
 	a.mu.Unlock()
+	if oldDAP != nil {
+		_ = oldDAP.Close()
+	}
+	stopRunState(oldRunState)
 	if oldLSP != nil {
 		if oldCancel != nil {
 			oldCancel()
@@ -502,6 +528,503 @@ func (a *App) LSPRename(uri string, line, character int, newName string) (jide.L
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	return manager.Rename(ctx, uri, line, character, newName)
+}
+
+// StartDebugSession discovers Julia and starts DebugAdapter.jl in the active
+// workspace environment. Adapter events are published as the Wails runtime
+// event "dap:event" using the typed protocol payload.
+func (a *App) StartDebugSession() (jide.DAPStartResult, error) {
+	a.mu.Lock()
+	if a.active == nil {
+		a.mu.Unlock()
+		return jide.DAPStartResult{}, ErrWorkspaceNotOpen
+	}
+	projectPath := a.active.workspace.ProjectPath()
+	workingDirectory := a.active.workspace.Root()
+	previous := a.dapClient
+	a.dapClient = nil
+	a.dapCaps = dap.Capabilities{}
+	a.dapGeneration++
+	generation := a.dapGeneration
+	a.mu.Unlock()
+	if previous != nil {
+		_ = previous.Close()
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	client, capabilities, err := (&dap.Discoverer{}).StartJuliaDebugSession(ctx, projectPath, workingDirectory, dap.DefaultTimeoutPolicy, nil)
+	cancel()
+	if err != nil {
+		return jide.DAPStartResult{}, fmt.Errorf("jide: start Julia debugger: %w", err)
+	}
+
+	a.mu.Lock()
+	if a.dapGeneration != generation || a.active == nil || a.active.workspace.Root() != workingDirectory {
+		a.mu.Unlock()
+		_ = client.Close()
+		return jide.DAPStartResult{}, errors.New("jide: workspace changed while starting the debugger")
+	}
+	a.dapClient = client
+	a.dapCaps = capabilities
+	a.mu.Unlock()
+	go a.forwardDAPEvents(client, generation)
+	go a.watchDAPProcess(client, generation)
+	return jide.DAPStartResult{Capabilities: protocolDAPCapabilities(capabilities)}, nil
+}
+
+// LaunchDebuggee launches a Julia source file and installs its initial line
+// breakpoints before allowing execution to continue. The launch response is
+// observed asynchronously so the UI can continue issuing debugger requests.
+func (a *App) LaunchDebuggee(programPath, workingDirectory string, arguments []string, stopOnEntry bool, breakpoints []jide.DAPSourceBreakpoint) error {
+	a.mu.Lock()
+	client := a.dapClient
+	if a.active == nil {
+		a.mu.Unlock()
+		return ErrWorkspaceNotOpen
+	}
+	projectPath := a.active.workspace.ProjectPath()
+	root := a.active.workspace.Root()
+	realRoot := a.active.workspace.RealRoot()
+	if client == nil {
+		a.mu.Unlock()
+		return errors.New("jide: debugger is not running")
+	}
+	if workingDirectory == "" {
+		workingDirectory = root
+	}
+	absoluteProgram, err := a.active.filePath(programPath)
+	a.mu.Unlock()
+	if err != nil {
+		return fmt.Errorf("jide: debug program: %w", err)
+	}
+	if !filepath.IsAbs(workingDirectory) {
+		workingDirectory = filepath.Join(root, workingDirectory)
+	}
+	absoluteWorkingDirectory, err := filepath.Abs(workingDirectory)
+	if err != nil {
+		return fmt.Errorf("jide: resolve debug working directory: %w", err)
+	}
+	if !pathWithin(root, filepath.Clean(absoluteWorkingDirectory)) {
+		return errors.New("jide: debug working directory is outside the active workspace")
+	}
+	realWorkingDirectory, err := filepath.EvalSymlinks(absoluteWorkingDirectory)
+	if err != nil {
+		return fmt.Errorf("jide: resolve debug working directory link: %w", err)
+	}
+	if !pathWithin(realRoot, realWorkingDirectory) {
+		return errors.New("jide: debug working directory resolves outside the active workspace")
+	}
+	info, err := os.Stat(absoluteWorkingDirectory)
+	if err != nil || !info.IsDir() {
+		return errors.New("jide: debug working directory is not a directory")
+	}
+
+	requestedBreakpoints := make([]dap.SourceBreakpoint, len(breakpoints))
+	for i, breakpoint := range breakpoints {
+		requestedBreakpoints[i] = dap.SourceBreakpoint{
+			Line: breakpoint.Line, Column: breakpoint.Column, Condition: breakpoint.Condition,
+			HitCondition: breakpoint.HitCondition, LogMessage: breakpoint.LogMessage,
+		}
+	}
+	ctx := context.Background()
+	pending, err := client.BeginLaunchJuliaFile(ctx, absoluteProgram, projectPath, absoluteWorkingDirectory, arguments, stopOnEntry, requestedBreakpoints)
+	if err != nil {
+		return fmt.Errorf("jide: launch Julia debuggee: %w", err)
+	}
+	go func() {
+		_, waitErr := pending.Wait()
+		if waitErr != nil {
+			a.emitDAPStatus(client, "error", waitErr.Error())
+			return
+		}
+		a.emitDAPStatus(client, "launch-complete", "")
+	}()
+	return nil
+}
+
+// AttachDebuggee attaches the active adapter to an adapter-specific target.
+func (a *App) AttachDebuggee(arguments map[string]any) error {
+	client, _, err := a.currentDAP()
+	if err != nil {
+		return err
+	}
+	pending, err := client.BeginAttach(context.Background(), arguments)
+	if err != nil {
+		return err
+	}
+	if err := client.ConfigureAndStart(context.Background(), nil, nil, nil, dap.DefaultTimeoutPolicy.Attach); err != nil {
+		pending.Cancel()
+		_ = client.Close()
+		return err
+	}
+	go func() {
+		_, waitErr := pending.Wait()
+		if waitErr != nil {
+			a.emitDAPStatus(client, "error", waitErr.Error())
+		} else {
+			a.emitDAPStatus(client, "launch-complete", "")
+		}
+	}()
+	return nil
+}
+
+// SetSourceBreakpoints replaces the breakpoints for one source file.
+func (a *App) SetSourceBreakpoints(source jide.DAPSource, breakpoints []jide.DAPSourceBreakpoint) (jide.DAPBreakpointsResult, error) {
+	client, _, err := a.currentDAP()
+	if err != nil {
+		return jide.DAPBreakpointsResult{}, err
+	}
+	requested := make([]dap.SourceBreakpoint, len(breakpoints))
+	for i, breakpoint := range breakpoints {
+		requested[i] = dap.SourceBreakpoint{Line: breakpoint.Line, Column: breakpoint.Column, Condition: breakpoint.Condition,
+			HitCondition: breakpoint.HitCondition, LogMessage: breakpoint.LogMessage}
+	}
+	verified, err := client.SetBreakpoints(context.Background(), dap.Source{Name: source.Name, Path: source.Path, SourceReference: source.SourceReference}, requested)
+	if err != nil {
+		return jide.DAPBreakpointsResult{}, err
+	}
+	return jide.DAPBreakpointsResult{Breakpoints: protocolDAPBreakpoints(verified)}, nil
+}
+
+// SetFunctionBreakpoints replaces function breakpoints.
+func (a *App) SetFunctionBreakpoints(breakpoints []jide.DAPFunctionBreakpoint) (jide.DAPBreakpointsResult, error) {
+	client, _, err := a.currentDAP()
+	if err != nil {
+		return jide.DAPBreakpointsResult{}, err
+	}
+	requested := make([]dap.FunctionBreakpoint, len(breakpoints))
+	for i, breakpoint := range breakpoints {
+		requested[i] = dap.FunctionBreakpoint{Name: breakpoint.Name, Condition: breakpoint.Condition, HitCondition: breakpoint.HitCondition}
+	}
+	verified, err := client.SetFunctionBreakpoints(context.Background(), requested)
+	if err != nil {
+		return jide.DAPBreakpointsResult{}, err
+	}
+	return jide.DAPBreakpointsResult{Breakpoints: protocolDAPBreakpoints(verified)}, nil
+}
+
+// SetExceptionBreakpoints selects adapter-advertised exception filters.
+func (a *App) SetExceptionBreakpoints(filters []string) error {
+	client, capabilities, err := a.currentDAP()
+	if err != nil {
+		return err
+	}
+	return client.SetExceptionBreakpointsNamed(context.Background(), filters, capabilities)
+}
+
+// DebugThreads lists the active debuggee threads.
+func (a *App) DebugThreads() (jide.DAPThreadsResult, error) {
+	client, _, err := a.currentDAP()
+	if err != nil {
+		return jide.DAPThreadsResult{}, err
+	}
+	threads, err := client.Threads(context.Background())
+	if err != nil {
+		return jide.DAPThreadsResult{}, err
+	}
+	return jide.DAPThreadsResult{Threads: protocolDAPThreads(threads)}, nil
+}
+
+// DebugStackTrace returns the requested page of stack frames.
+func (a *App) DebugStackTrace(threadID, startFrame, levels int) (jide.DAPStackTraceResult, error) {
+	client, _, err := a.currentDAP()
+	if err != nil {
+		return jide.DAPStackTraceResult{}, err
+	}
+	result, err := client.StackTrace(context.Background(), threadID, startFrame, levels)
+	if err != nil {
+		return jide.DAPStackTraceResult{}, err
+	}
+	return jide.DAPStackTraceResult{StackFrames: protocolDAPStackFrames(result.StackFrames), TotalFrames: result.TotalFrames}, nil
+}
+
+// DebugContinue resumes a stopped debuggee thread.
+func (a *App) DebugContinue(threadID int) (jide.DAPContinueResult, error) {
+	client, _, err := a.currentDAP()
+	if err != nil {
+		return jide.DAPContinueResult{}, err
+	}
+	result, err := client.Continue(context.Background(), threadID)
+	return jide.DAPContinueResult{AllThreadsContinued: result.AllThreadsContinued}, err
+}
+
+// DebugNext steps over the current source line.
+func (a *App) DebugNext(threadID int) error {
+	client, _, err := a.currentDAP()
+	if err != nil {
+		return err
+	}
+	return client.Next(context.Background(), threadID)
+}
+
+// DebugStepIn steps into the current call, optionally selecting a call target.
+func (a *App) DebugStepIn(threadID, targetID int) error {
+	client, _, err := a.currentDAP()
+	if err != nil {
+		return err
+	}
+	if targetID > 0 {
+		return client.StepInAtTarget(context.Background(), threadID, targetID)
+	}
+	return client.StepIn(context.Background(), threadID)
+}
+
+// DebugStepOut steps out of the current function.
+func (a *App) DebugStepOut(threadID int) error {
+	client, _, err := a.currentDAP()
+	if err != nil {
+		return err
+	}
+	return client.StepOut(context.Background(), threadID)
+}
+
+// DebugPause requests that the adapter pause the selected thread.
+func (a *App) DebugPause(threadID int) error {
+	client, _, err := a.currentDAP()
+	if err != nil {
+		return err
+	}
+	return client.Pause(context.Background(), threadID)
+}
+
+// DebugScopes returns the scopes belonging to a stack frame.
+func (a *App) DebugScopes(frameID int) (jide.DAPScopesResult, error) {
+	client, _, err := a.currentDAP()
+	if err != nil {
+		return jide.DAPScopesResult{}, err
+	}
+	scopes, err := client.Scopes(context.Background(), frameID)
+	if err != nil {
+		return jide.DAPScopesResult{}, err
+	}
+	return jide.DAPScopesResult{Scopes: protocolDAPScopes(scopes)}, nil
+}
+
+// DebugVariables expands a scope or variable reference.
+func (a *App) DebugVariables(reference, start, count int) (jide.DAPVariablesResult, error) {
+	client, _, err := a.currentDAP()
+	if err != nil {
+		return jide.DAPVariablesResult{}, err
+	}
+	variables, err := client.Variables(context.Background(), reference, start, count)
+	if err != nil {
+		return jide.DAPVariablesResult{}, err
+	}
+	return jide.DAPVariablesResult{Variables: protocolDAPVariables(variables)}, nil
+}
+
+// DebugEvaluate evaluates an expression in the selected frame.
+func (a *App) DebugEvaluate(expression string, frameID int, contextName string) (jide.DAPEvaluateResult, error) {
+	client, capabilities, err := a.currentDAP()
+	if err != nil {
+		return jide.DAPEvaluateResult{}, err
+	}
+	result, err := client.EvaluateIfSupported(context.Background(), expression, frameID, contextName, capabilities)
+	if err != nil {
+		return jide.DAPEvaluateResult{}, err
+	}
+	return jide.DAPEvaluateResult{Result: result.Result, Type: result.Type, VariablesReference: result.VariablesReference}, nil
+}
+
+// DebugSetVariable assigns a value in a scope or expandable variable.
+func (a *App) DebugSetVariable(reference int, name, value string) (jide.DAPSetVariableResult, error) {
+	client, capabilities, err := a.currentDAP()
+	if err != nil {
+		return jide.DAPSetVariableResult{}, err
+	}
+	result, err := client.SetVariable(context.Background(), reference, name, value, capabilities)
+	if err != nil {
+		return jide.DAPSetVariableResult{}, err
+	}
+	return jide.DAPSetVariableResult{Value: result.Value, Type: result.Type, VariablesReference: result.VariablesReference,
+		NamedVariables: result.NamedVariables, IndexedVariables: result.IndexedVariables}, nil
+}
+
+// DebugExceptionInfo returns details about the current exception stop.
+func (a *App) DebugExceptionInfo(threadID int) (jide.DAPExceptionInfoResult, error) {
+	client, _, err := a.currentDAP()
+	if err != nil {
+		return jide.DAPExceptionInfoResult{}, err
+	}
+	result, err := client.ExceptionInfo(context.Background(), threadID)
+	if err != nil {
+		return jide.DAPExceptionInfoResult{}, err
+	}
+	return protocolDAPExceptionInfo(result), nil
+}
+
+// DebugTerminate asks the adapter to terminate the active debuggee.
+func (a *App) DebugTerminate() error {
+	client, _, err := a.currentDAP()
+	if err != nil {
+		return err
+	}
+	return client.Terminate(context.Background())
+}
+
+// EndDebugSession disconnects the adapter and releases the active session.
+func (a *App) EndDebugSession(terminate bool) error {
+	a.mu.Lock()
+	client := a.dapClient
+	a.dapClient = nil
+	a.dapCaps = dap.Capabilities{}
+	a.dapGeneration++
+	desktopContext := a.ctx
+	a.mu.Unlock()
+	if client == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	err := client.Disconnect(ctx, terminate)
+	cancel()
+	closeErr := client.Close()
+	if desktopContext != nil {
+		wailsruntime.EventsEmit(desktopContext, "dap:status", map[string]string{"state": "stopped"})
+	}
+	return errors.Join(err, closeErr)
+}
+
+func (a *App) currentDAP() (*dap.Client, dap.Capabilities, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.dapClient == nil {
+		return nil, dap.Capabilities{}, errors.New("jide: debugger is not running")
+	}
+	return a.dapClient, a.dapCaps, nil
+}
+
+func (a *App) forwardDAPEvents(client *dap.Client, generation uint64) {
+	for event := range client.Events() {
+		a.mu.Lock()
+		active := a.dapClient == client && a.dapGeneration == generation
+		ctx := a.ctx
+		a.mu.Unlock()
+		if active && ctx != nil {
+			wailsruntime.EventsEmit(ctx, "dap:event", jide.DAPEventParams{Event: event.Name, Body: event.Body})
+		}
+	}
+}
+
+func (a *App) watchDAPProcess(client *dap.Client, generation uint64) {
+	err := client.Wait(context.Background())
+	a.mu.Lock()
+	active := a.dapClient == client && a.dapGeneration == generation
+	ctx := a.ctx
+	if active {
+		a.dapClient = nil
+		a.dapCaps = dap.Capabilities{}
+	}
+	a.mu.Unlock()
+	if active && ctx != nil {
+		status := map[string]string{"state": "exited"}
+		if err != nil {
+			status["message"] = err.Error()
+		}
+		wailsruntime.EventsEmit(ctx, "dap:status", status)
+	}
+}
+
+func (a *App) emitDAPStatus(client *dap.Client, state, message string) {
+	a.mu.Lock()
+	active := a.dapClient == client
+	ctx := a.ctx
+	a.mu.Unlock()
+	if !active || ctx == nil {
+		return
+	}
+	status := map[string]string{"state": state}
+	if message != "" {
+		status["message"] = message
+	}
+	wailsruntime.EventsEmit(ctx, "dap:status", status)
+}
+
+func protocolDAPCapabilities(value dap.Capabilities) jide.DAPCapabilities {
+	return jide.DAPCapabilities{
+		SupportsConfigurationDoneRequest:  value.SupportsConfigurationDoneRequest,
+		SupportsFunctionBreakpoints:       value.SupportsFunctionBreakpoints,
+		SupportsConditionalBreakpoints:    value.SupportsConditionalBreakpoints,
+		SupportsHitConditionalBreakpoints: value.SupportsHitConditionalBreakpoints,
+		SupportsEvaluateForHovers:         value.SupportsEvaluateForHovers,
+		SupportsStepBack:                  value.SupportsStepBack,
+		SupportsSetVariable:               value.SupportsSetVariable,
+		SupportsRestartFrame:              value.SupportsRestartFrame,
+		SupportsStepInTargetsRequest:      value.SupportsStepInTargetsRequest,
+		SupportsExceptionInfoRequest:      value.SupportsExceptionInfoRequest,
+		SupportsTerminateRequest:          value.SupportsTerminateRequest,
+		SupportsRestartRequest:            value.SupportsRestartRequest,
+		SupportsLogPoints:                 value.SupportsLogPoints,
+		SupportsDataBreakpoints:           value.SupportsDataBreakpoints,
+		SupportsVariablePaging:            value.SupportsVariablePaging,
+		SupportsVariableType:              value.SupportsVariableType,
+		ExceptionBreakpointFilters:        protocolDAPExceptionFilters(value.ExceptionBreakpointFilters),
+	}
+}
+
+func protocolDAPExceptionFilters(values []dap.ExceptionBreakpointFilter) []jide.DAPExceptionBreakpointFilter {
+	result := make([]jide.DAPExceptionBreakpointFilter, len(values))
+	for i, value := range values {
+		result[i] = jide.DAPExceptionBreakpointFilter{Filter: value.Filter, Label: value.Label, Description: value.Description, Default: value.Default}
+	}
+	return result
+}
+
+func protocolDAPSource(source *dap.Source) *jide.DAPSource {
+	if source == nil {
+		return nil
+	}
+	return &jide.DAPSource{Name: source.Name, Path: source.Path, SourceReference: source.SourceReference}
+}
+
+func protocolDAPBreakpoints(values []dap.Breakpoint) []jide.DAPBreakpoint {
+	result := make([]jide.DAPBreakpoint, len(values))
+	for i, value := range values {
+		result[i] = jide.DAPBreakpoint{ID: value.ID, Verified: value.Verified, Message: value.Message, Source: protocolDAPSource(value.Source), Line: value.Line, Column: value.Column}
+	}
+	return result
+}
+
+func protocolDAPThreads(values []dap.Thread) []jide.DAPThread {
+	result := make([]jide.DAPThread, len(values))
+	for i, value := range values {
+		result[i] = jide.DAPThread{ID: value.ID, Name: value.Name}
+	}
+	return result
+}
+
+func protocolDAPStackFrames(values []dap.StackFrame) []jide.DAPStackFrame {
+	result := make([]jide.DAPStackFrame, len(values))
+	for i, value := range values {
+		result[i] = jide.DAPStackFrame{ID: value.ID, Name: value.Name, Source: protocolDAPSource(value.Source), Line: value.Line, Column: value.Column}
+	}
+	return result
+}
+
+func protocolDAPScopes(values []dap.Scope) []jide.DAPScope {
+	result := make([]jide.DAPScope, len(values))
+	for i, value := range values {
+		result[i] = jide.DAPScope{Name: value.Name, PresentationHint: value.PresentationHint, VariablesReference: value.VariablesReference,
+			NamedVariables: value.NamedVariables, IndexedVariables: value.IndexedVariables, Expensive: value.Expensive}
+	}
+	return result
+}
+
+func protocolDAPVariables(values []dap.Variable) []jide.DAPVariable {
+	result := make([]jide.DAPVariable, len(values))
+	for i, value := range values {
+		result[i] = jide.DAPVariable{Name: value.Name, Value: value.Value, Type: value.Type, EvaluateName: value.EvaluateName,
+			VariablesReference: value.VariablesReference, NamedVariables: value.NamedVariables, IndexedVariables: value.IndexedVariables}
+	}
+	return result
+}
+
+func protocolDAPExceptionInfo(value dap.ExceptionInfoResult) jide.DAPExceptionInfoResult {
+	result := jide.DAPExceptionInfoResult{ExceptionID: value.ExceptionID, Description: value.Description, BreakMode: value.BreakMode}
+	if value.Details != nil {
+		result.Details = &jide.DAPExceptionDetails{Message: value.Details.Message, TypeName: value.Details.TypeName, FullTypeName: value.Details.FullTypeName,
+			EvaluateName: value.Details.EvaluateName, StackTrace: value.Details.StackTrace}
+	}
+	return result
 }
 
 // IndexSearch executes the typed text-search protocol operation against the

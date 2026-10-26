@@ -9,9 +9,9 @@
 // behavior must be reachable through it so that the engine stays testable
 // without a GUI.
 //
-// In WP0 the daemon is a stub. It only reports its version; the transport,
-// the dispatch loop and the engine services arrive with the work packages
-// that own them.
+// The daemon provides DAP, run-configuration, and test-run methods over
+// line-oriented JSON-RPC on stdin/stdout. The broader engine transport and
+// service dispatch remain incremental work; --version is kept for diagnostics.
 package main
 
 import (
@@ -19,6 +19,7 @@ import (
 	"io"
 	"os"
 	"runtime"
+	"strings"
 
 	"github.com/jide-dev/jide/proto/jide"
 )
@@ -28,20 +29,28 @@ import (
 var version = "0.0.0-dev"
 
 func main() {
-	if err := run(os.Args[1:], os.Stdout); err != nil {
+	if err := runWithIO(os.Args[1:], os.Stdin, os.Stdout); err != nil {
 		fmt.Fprintln(os.Stderr, "jided:", err)
 		os.Exit(1)
 	}
 }
 
-// run executes the command line of the stub. Only --version is supported.
+// run executes the command line with an empty input stream, which is useful for
+// version parsing tests. --stdio is handled by runWithIO in the daemon entry.
 func run(args []string, out io.Writer) error {
+	return runWithIO(args, strings.NewReader(""), out)
+}
+
+func runWithIO(args []string, in io.Reader, out io.Writer) error {
+	if len(args) == 1 && args[0] == "--stdio" {
+		return serveStdio(in, out)
+	}
 	for _, arg := range args {
 		switch arg {
 		case "-version", "--version", "version":
 			return printVersion(out)
 		default:
-			return fmt.Errorf("unknown argument %q; the WP0 stub only supports --version", arg)
+			return fmt.Errorf("unknown argument %q; use --version or --stdio", arg)
 		}
 	}
 	return printVersion(out)

@@ -34,6 +34,7 @@ type MethodInfo struct {
 	Direction Direction `json:"direction"`
 	Summary   string    `json:"summary"`
 	Params    string    `json:"params,omitempty"`
+	Result    string    `json:"result,omitempty"`
 }
 
 // Protocol method names.
@@ -127,14 +128,63 @@ const (
 	MethodRunExecute Method = "run/execute"
 	// MethodRunTerminate stops a running process.
 	MethodRunTerminate Method = "run/terminate"
+	// MethodRunInput writes text to an interactive run process.
+	MethodRunInput Method = "run/input"
+	// MethodRunOutput publishes a stdout/stderr chunk from a run process.
+	MethodRunOutput Method = "run/output"
+	// MethodRunExited publishes the final process status.
+	MethodRunExited Method = "run/exited"
 
-	// MethodDAPBreakpoints publishes the debugger breakpoint set.
-	MethodDAPBreakpoints Method = "dap/breakpoints"
-	// MethodDAPStackTrace publishes a debugger stack trace.
+	// MethodDAPStart starts and initializes a debug adapter.
+	MethodDAPStart Method = "dap/start"
+	// MethodDAPLaunch launches the configured debuggee.
+	MethodDAPLaunch Method = "dap/launch"
+	// MethodDAPAttach attaches to a running debuggee.
+	MethodDAPAttach Method = "dap/attach"
+	// MethodDAPSetBreakpoints replaces source breakpoints.
+	MethodDAPSetBreakpoints Method = "dap/setBreakpoints"
+	// MethodDAPSetFunctionBreakpoints replaces function breakpoints.
+	MethodDAPSetFunctionBreakpoints Method = "dap/setFunctionBreakpoints"
+	// MethodDAPSetExceptionBreakpoints selects adapter exception filters.
+	MethodDAPSetExceptionBreakpoints Method = "dap/setExceptionBreakpoints"
+	// MethodDAPConfigurationDone signals that configuration is complete.
+	MethodDAPConfigurationDone Method = "dap/configurationDone"
+	// MethodDAPStackTrace returns a thread's stack frames.
 	MethodDAPStackTrace Method = "dap/stackTrace"
-
+	// MethodDAPThreads returns the adapter's active threads.
+	MethodDAPThreads Method = "dap/threads"
+	// MethodDAPContinue resumes a stopped thread.
+	MethodDAPContinue Method = "dap/continue"
+	// MethodDAPNext steps over the current source line.
+	MethodDAPNext Method = "dap/next"
+	// MethodDAPStepIn enters a function call.
+	MethodDAPStepIn Method = "dap/stepIn"
+	// MethodDAPStepOut exits the current function.
+	MethodDAPStepOut Method = "dap/stepOut"
+	// MethodDAPStepInTargets lists function call targets on the current line.
+	MethodDAPStepInTargets Method = "dap/stepInTargets"
+	// MethodDAPPause interrupts a running thread.
+	MethodDAPPause Method = "dap/pause"
+	// MethodDAPScopes requests scopes for a stack frame.
+	MethodDAPScopes Method = "dap/scopes"
+	// MethodDAPVariables requests variable values.
+	MethodDAPVariables Method = "dap/variables"
+	// MethodDAPEvaluate evaluates an expression in a debug context.
+	MethodDAPEvaluate Method = "dap/evaluate"
+	// MethodDAPSetVariable assigns a value to a debug variable.
+	MethodDAPSetVariable Method = "dap/setVariable"
+	// MethodDAPExceptionInfo returns details for the stopped exception.
+	MethodDAPExceptionInfo Method = "dap/exceptionInfo"
+	// MethodDAPTerminate terminates the active debuggee.
+	MethodDAPTerminate Method = "dap/terminate"
+	// MethodDAPDisconnect ends a debug session.
+	MethodDAPDisconnect Method = "dap/disconnect"
+	// MethodDAPEvent publishes a DAP event to the shell.
+	MethodDAPEvent Method = "dap/event"
 	// MethodTestRunExecute starts a test run.
 	MethodTestRunExecute Method = "testrun/execute"
+	// MethodTestRunEvent publishes a streamed Test Explorer update.
+	MethodTestRunEvent Method = "testrun/event"
 
 	// MethodExtensionList lists the registered extension bundles.
 	MethodExtensionList Method = "extension/list"
@@ -362,30 +412,69 @@ var methodCatalog = []MethodInfo{
 		Direction: DirectionClientToServer,
 		Summary:   "Start a run configuration.",
 		Params:    "runExecuteParams",
+		Result:    "runExecuteResult",
 	},
 	{
 		Name:      MethodRunTerminate,
 		Direction: DirectionClientToServer,
 		Summary:   "Stop a running process.",
 		Params:    "runTerminateParams",
+		Result:    "runTerminateResult",
 	},
 	{
-		Name:      MethodDAPBreakpoints,
-		Direction: DirectionServerToClient,
-		Summary:   "Publish the debugger breakpoint set.",
-		Params:    "breakpointsParams",
+		Name:      MethodRunInput,
+		Direction: DirectionClientToServer,
+		Summary:   "Write stdin data to an interactive run process.",
+		Params:    "runInputParams",
+		Result:    "runInputResult",
 	},
 	{
-		Name:      MethodDAPStackTrace,
+		Name:      MethodRunOutput,
 		Direction: DirectionServerToClient,
-		Summary:   "Publish a debugger stack trace.",
-		Params:    "stackTraceParams",
+		Summary:   "Publish process output from a run configuration.",
+		Params:    "runOutputParams",
 	},
+	{
+		Name:      MethodRunExited,
+		Direction: DirectionServerToClient,
+		Summary:   "Publish the final process status of a run configuration.",
+		Params:    "runExitedParams",
+	},
+	{Name: MethodDAPStart, Direction: DirectionClientToServer, Summary: "Discover and initialize DebugAdapter.jl or start an explicit adapter.", Params: "dapStartParams", Result: "dapStartResult"},
+	{Name: MethodDAPLaunch, Direction: DirectionClientToServer, Summary: "Launch a debuggee through the adapter.", Params: "dapArgumentsParams", Result: "dapEmptyResult"},
+	{Name: MethodDAPAttach, Direction: DirectionClientToServer, Summary: "Attach to a debuggee through the adapter.", Params: "dapArgumentsParams", Result: "dapEmptyResult"},
+	{Name: MethodDAPConfigurationDone, Direction: DirectionClientToServer, Summary: "Finish configuring a debug session.", Result: "dapEmptyResult"},
+	{Name: MethodDAPStackTrace, Direction: DirectionClientToServer, Summary: "Return stack frames for a debuggee thread.", Params: "dapStackTraceParams", Result: "dapStackTraceResult"},
+	{Name: MethodDAPThreads, Direction: DirectionClientToServer, Summary: "List threads in the debuggee.", Params: "dapThreadsParams", Result: "dapThreadsResult"},
+	{Name: MethodDAPContinue, Direction: DirectionClientToServer, Summary: "Continue a stopped debuggee thread.", Params: "dapThreadParams", Result: "dapContinueResult"},
+	{Name: MethodDAPNext, Direction: DirectionClientToServer, Summary: "Step over the current source line.", Params: "dapThreadParams", Result: "dapEmptyResult"},
+	{Name: MethodDAPStepIn, Direction: DirectionClientToServer, Summary: "Step into the current function call.", Params: "dapThreadParams", Result: "dapEmptyResult"},
+	{Name: MethodDAPStepOut, Direction: DirectionClientToServer, Summary: "Step out of the current function.", Params: "dapThreadParams", Result: "dapEmptyResult"},
+	{Name: MethodDAPStepInTargets, Direction: DirectionClientToServer, Summary: "List step-in targets for a stack frame.", Params: "dapFrameParams", Result: "dapStepInTargetsResult"},
+	{Name: MethodDAPPause, Direction: DirectionClientToServer, Summary: "Pause a running debuggee thread.", Params: "dapThreadParams", Result: "dapEmptyResult"},
+	{Name: MethodDAPScopes, Direction: DirectionClientToServer, Summary: "Request scopes for a stack frame.", Params: "dapFrameParams", Result: "dapScopesResult"},
+	{Name: MethodDAPVariables, Direction: DirectionClientToServer, Summary: "Request variables in a scope or value.", Params: "dapVariablesParams", Result: "dapVariablesResult"},
+	{Name: MethodDAPEvaluate, Direction: DirectionClientToServer, Summary: "Evaluate an expression in the debug context.", Params: "dapEvaluateParams", Result: "dapEvaluateResult"},
+	{Name: MethodDAPSetBreakpoints, Direction: DirectionClientToServer, Summary: "Replace source-line breakpoints.", Params: "dapSetBreakpointsParams", Result: "dapBreakpointsResult"},
+	{Name: MethodDAPSetFunctionBreakpoints, Direction: DirectionClientToServer, Summary: "Replace function breakpoints.", Params: "dapFunctionBreakpointsParams", Result: "dapBreakpointsResult"},
+	{Name: MethodDAPDisconnect, Direction: DirectionClientToServer, Summary: "Disconnect the debuggee and adapter.", Params: "dapDisconnectParams", Result: "dapEmptyResult"},
+	{Name: MethodDAPSetExceptionBreakpoints, Direction: DirectionClientToServer, Summary: "Select adapter exception breakpoint filters.", Params: "dapExceptionBreakpointsParams", Result: "dapBreakpointsResult"},
+	{Name: MethodDAPSetVariable, Direction: DirectionClientToServer, Summary: "Assign a value to a debug variable.", Params: "dapSetVariableParams", Result: "dapSetVariableResult"},
+	{Name: MethodDAPExceptionInfo, Direction: DirectionClientToServer, Summary: "Return details about a stopped exception.", Params: "dapThreadParams", Result: "dapExceptionInfoResult"},
+	{Name: MethodDAPTerminate, Direction: DirectionClientToServer, Summary: "Terminate the active debuggee.", Result: "dapEmptyResult"},
+	{Name: MethodDAPEvent, Direction: DirectionServerToClient, Summary: "Publish an adapter event.", Params: "dapEventParams"},
 	{
 		Name:      MethodTestRunExecute,
 		Direction: DirectionClientToServer,
-		Summary:   "Start a test run.",
+		Summary:   "Start a Julia @testset run and return its run identifier.",
 		Params:    "testRunExecuteParams",
+		Result:    "testRunExecuteResult",
+	},
+	{
+		Name:      MethodTestRunEvent,
+		Direction: DirectionServerToClient,
+		Summary:   "Stream test-set, assertion, output, and completion updates.",
+		Params:    "testRunEventParams",
 	},
 	{
 		Name:      MethodExtensionList,

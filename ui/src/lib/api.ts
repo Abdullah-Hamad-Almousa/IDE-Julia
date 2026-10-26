@@ -1,4 +1,4 @@
-import type { DocumentView, LSPCompletionResult, LSPDefinitionResult, LSPDiagnostic, LSPHoverResult, LSPReferencesResult, LSPRenameResult, LSPStatusView, SyntaxHighlightsResult, TextSearchResult, WorkspaceSymbolsResult, WorkspaceView } from './types';
+import type { DAPBreakpointsResult, DAPContinueResult, DAPEvaluateResult, DAPScopesResult, DAPSource, DAPSourceBreakpoint, DAPStackTraceResult, DAPStartResult, DAPThreadsResult, DAPVariablesResult, DocumentView, LSPCompletionResult, LSPDefinitionResult, LSPDiagnostic, LSPHoverResult, LSPReferencesResult, LSPRenameResult, LSPStatusView, RunConfiguration, RunExecuteResult, RunExitedParams, RunOutputParams, SyntaxHighlightsResult, TestRunEventParams, TestRunExecuteParams, TestRunExecuteResult, TextSearchResult, WorkspaceSymbolsResult, WorkspaceView } from './types';
 
 interface WailsApp {
   OpenWorkspaceDialog(): Promise<WorkspaceView | null>;
@@ -24,6 +24,25 @@ interface WailsApp {
   LSPRename(uri: string, line: number, character: number, newName: string): Promise<LSPRenameResult>;
   SearchText(query: string, limit: number): Promise<TextSearchResult>;
   SearchWorkspaceSymbols(query: string, limit: number): Promise<WorkspaceSymbolsResult>;
+  StartRunConfiguration(configuration: RunConfiguration): Promise<RunExecuteResult>;
+  StopRun(runId: string): Promise<void>;
+  WriteRunInput(runId: string, input: string): Promise<void>;
+  StartTestRun(params: TestRunExecuteParams): Promise<TestRunExecuteResult>;
+  StopTestRun(runId: string): Promise<void>;
+  StartDebugSession(): Promise<DAPStartResult>;
+  LaunchDebuggee(programPath: string, workingDirectory: string, args: string[], stopOnEntry: boolean, breakpoints: DAPSourceBreakpoint[]): Promise<void>;
+  SetSourceBreakpoints(source: DAPSource, breakpoints: DAPSourceBreakpoint[]): Promise<DAPBreakpointsResult>;
+  DebugThreads(): Promise<DAPThreadsResult>;
+  DebugStackTrace(threadId: number, startFrame: number, levels: number): Promise<DAPStackTraceResult>;
+  DebugContinue(threadId: number): Promise<DAPContinueResult>;
+  DebugNext(threadId: number): Promise<void>;
+  DebugStepIn(threadId: number, targetId: number): Promise<void>;
+  DebugStepOut(threadId: number): Promise<void>;
+  DebugPause(threadId: number): Promise<void>;
+  DebugScopes(frameId: number): Promise<DAPScopesResult>;
+  DebugVariables(reference: number, start: number, count: number): Promise<DAPVariablesResult>;
+  DebugEvaluate(expression: string, frameId: number, contextName: string): Promise<DAPEvaluateResult>;
+  EndDebugSession(terminate: boolean): Promise<void>;
 }
 
 interface WailsRuntime {
@@ -75,7 +94,26 @@ export const backend = {
   lspDefinition: (uri: string, line: number, character: number) => bridge().LSPDefinition(uri, line, character),
   lspRename: (uri: string, line: number, character: number, newName: string) => bridge().LSPRename(uri, line, character, newName),
   searchText: (query: string, limit = 100) => bridge().SearchText(query, limit),
-  searchWorkspaceSymbols: (query: string, limit = 100) => bridge().SearchWorkspaceSymbols(query, limit)
+  searchWorkspaceSymbols: (query: string, limit = 100) => bridge().SearchWorkspaceSymbols(query, limit),
+  startRunConfiguration: (configuration: RunConfiguration) => bridge().StartRunConfiguration(configuration),
+  stopRun: (runId: string) => bridge().StopRun(runId),
+  writeRunInput: (runId: string, input: string) => bridge().WriteRunInput(runId, input),
+  startTestRun: (params: TestRunExecuteParams) => bridge().StartTestRun(params),
+  stopTestRun: (runId: string) => bridge().StopTestRun(runId),
+  startDebugSession: () => bridge().StartDebugSession(),
+  launchDebuggee: (programPath: string, workingDirectory: string, args: string[], stopOnEntry: boolean, breakpoints: DAPSourceBreakpoint[]) => bridge().LaunchDebuggee(programPath, workingDirectory, args, stopOnEntry, breakpoints),
+  setSourceBreakpoints: (source: DAPSource, breakpoints: DAPSourceBreakpoint[]) => bridge().SetSourceBreakpoints(source, breakpoints),
+  debugThreads: () => bridge().DebugThreads(),
+  debugStackTrace: (threadId: number, startFrame = 0, levels = 20) => bridge().DebugStackTrace(threadId, startFrame, levels),
+  debugContinue: (threadId: number) => bridge().DebugContinue(threadId),
+  debugNext: (threadId: number) => bridge().DebugNext(threadId),
+  debugStepIn: (threadId: number, targetId = 0) => bridge().DebugStepIn(threadId, targetId),
+  debugStepOut: (threadId: number) => bridge().DebugStepOut(threadId),
+  debugPause: (threadId: number) => bridge().DebugPause(threadId),
+  debugScopes: (frameId: number) => bridge().DebugScopes(frameId),
+  debugVariables: (reference: number, start = 0, count = 100) => bridge().DebugVariables(reference, start, count),
+  debugEvaluate: (expression: string, frameId: number, contextName = 'repl') => bridge().DebugEvaluate(expression, frameId, contextName),
+  endDebugSession: (terminate: boolean) => bridge().EndDebugSession(terminate)
 };
 
 export const windowControls = {

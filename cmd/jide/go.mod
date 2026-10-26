@@ -3,9 +3,13 @@ module github.com/jide-dev/jide/cmd/jide
 go 1.24
 
 require (
+	github.com/jide-dev/jide/internal/dap v0.0.0
 	github.com/jide-dev/jide/internal/index v0.0.0
+	github.com/jide-dev/jide/internal/jlproc v0.0.0
 	github.com/jide-dev/jide/internal/lsp v0.0.0
+	github.com/jide-dev/jide/internal/runconf v0.0.0
 	github.com/jide-dev/jide/internal/syntax v0.0.0
+	github.com/jide-dev/jide/internal/testrun v0.0.0
 	github.com/jide-dev/jide/internal/vfs v0.0.0
 	github.com/jide-dev/jide/internal/workspace v0.0.0
 	github.com/jide-dev/jide/proto/jide v0.0.0
@@ -23,7 +27,6 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/jchv/go-winloader v0.0.0-20210711035445-715c2860da7e // indirect
-	github.com/jide-dev/jide/internal/jlproc v0.0.0 // indirect
 	github.com/labstack/echo/v4 v4.13.3 // indirect
 	github.com/labstack/gommon v0.4.2 // indirect
 	github.com/leaanthony/go-ansi-parser v1.6.1 // indirect
@@ -56,7 +59,13 @@ replace github.com/jide-dev/jide/internal/lsp => ../../internal/lsp
 
 replace github.com/jide-dev/jide/internal/index => ../../internal/index
 
+replace github.com/jide-dev/jide/internal/dap => ../../internal/dap
+
 replace github.com/jide-dev/jide/internal/jlproc => ../../internal/jlproc
+
+replace github.com/jide-dev/jide/internal/runconf => ../../internal/runconf
+
+replace github.com/jide-dev/jide/internal/testrun => ../../internal/testrun
 
 replace github.com/jide-dev/jide/internal/vfs => ../../internal/vfs
 

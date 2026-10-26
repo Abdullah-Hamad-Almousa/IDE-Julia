@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
   import Editor from './lib/Editor.svelte';
+  import DAPPanel from './lib/DAPPanel.svelte';
+  import RunPanel from './lib/RunPanel.svelte';
   import FileTree from './lib/FileTree.svelte';
   import { backend } from './lib/api';
   import { buildFileTree } from './lib/fileTree';
@@ -35,6 +37,8 @@
   let providerErrorMessage = '';
   let statusMessage = '';
   let statusRefreshGeneration = 0;
+  let debugVisible = false;
+  let runVisible = false;
 
   $: fileTree = buildFileTree($workspaceStore?.entries ?? []);
   $: filteredTree = filterNodes(fileTree, filterText.trim().toLowerCase());
@@ -238,6 +242,11 @@
     activeDocumentPathStore.set(document.path);
     if (document.path.toLowerCase().endsWith('.jl')) await refreshDocumentDiagnostics(document.path);
     return document;
+  }
+
+  async function navigateToDebugFrame(path: string, line: number): Promise<void> {
+    const document = await openNavigationTarget(path);
+    targetPosition = { path: document.path, line: Math.max(1, line), column: 1 };
   }
 
   async function refreshDocumentDiagnostics(path: string): Promise<void> {
@@ -496,21 +505,42 @@
           <div class="editor-context">
             <span class="language-chip">{$activeDocumentStore?.path.endsWith('.jl') ? 'Julia' : 'Text'}</span>
             {#if $activeDocumentStore?.dirty}<span class="unsaved-label">Unsaved</span>{/if}
+            {#if $activeDocumentStore?.path.toLowerCase().endsWith('.jl')}
+              <button class="debug-toggle" class:active={runVisible} on:click={() => { runVisible = !runVisible; if (runVisible) debugVisible = false; }} aria-expanded={runVisible}>Run / Test</button>
+              <button class="debug-toggle" class:active={debugVisible} on:click={() => { debugVisible = !debugVisible; if (debugVisible) runVisible = false; }} aria-expanded={debugVisible}>Debug</button>
+            {/if}
           </div>
         </div>
         <section class="editor-surface" aria-label="Editor">
-          <Editor
-            document={$activeDocumentStore}
-            {openPaths}
-            onOpen={openNavigationTarget}
-            onActivate={(path) => activeDocumentPathStore.set(path)}
-            {targetPosition}
-            onChange={handleEditorChange}
-            onSave={(path, text) => {
-              const current = $documentsStore.find((item) => item.path === path);
-              if (current) void saveDocument({ ...current, text });
-            }}
-            onCursor={(line, column) => { cursorLine = line; cursorColumn = column; }}
+          <div class="editor-region">
+            <Editor
+              document={$activeDocumentStore}
+              {openPaths}
+              onOpen={openNavigationTarget}
+              onActivate={(path) => activeDocumentPathStore.set(path)}
+              {targetPosition}
+              onChange={handleEditorChange}
+              onSave={(path, text) => {
+                const current = $documentsStore.find((item) => item.path === path);
+                if (current) void saveDocument({ ...current, text });
+              }}
+              onCursor={(line, column) => { cursorLine = line; cursorColumn = column; }}
+            />
+          </div>
+          <DAPPanel
+            bind:visible={debugVisible}
+            workspacePath={$workspaceStore?.root ?? ''}
+            activeDocument={$activeDocumentStore}
+            onSave={() => saveDocument()}
+            onNavigate={navigateToDebugFrame}
+          />
+          <RunPanel
+            bind:visible={runVisible}
+            workspacePath={$workspaceStore?.root ?? ''}
+            projectPath={$workspaceStore?.projectPath ?? ''}
+            activeDocument={$activeDocumentStore}
+            onSave={() => saveDocument()}
+            onNavigate={navigateToDebugFrame}
           />
         </section>
       {:else}

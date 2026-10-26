@@ -120,6 +120,38 @@ func TestDirtyDocumentRequiresExplicitDiscard(t *testing.T) {
 	}
 }
 
+func TestDebugOperationsRequireAnOpenWorkspaceAndSession(t *testing.T) {
+	app := NewApp()
+	if _, err := app.StartDebugSession(); !errors.Is(err, ErrWorkspaceNotOpen) {
+		t.Errorf("StartDebugSession() error = %v, want ErrWorkspaceNotOpen", err)
+	}
+	if err := app.LaunchDebuggee("main.jl", "", nil, false, nil); !errors.Is(err, ErrWorkspaceNotOpen) {
+		t.Errorf("LaunchDebuggee() error = %v, want ErrWorkspaceNotOpen", err)
+	}
+	if _, err := app.DebugThreads(); err == nil || !strings.Contains(err.Error(), "debugger is not running") {
+		t.Errorf("DebugThreads() error = %v, want no-session error", err)
+	}
+	if err := app.EndDebugSession(false); err != nil {
+		t.Errorf("EndDebugSession() without a session error = %v", err)
+	}
+}
+
+func TestRunOperationsRequireAnOpenWorkspace(t *testing.T) {
+	app := NewApp()
+	if _, err := app.StartRunConfiguration(jide.RunConfiguration{Name: "Script", Type: "julia-script"}); !errors.Is(err, ErrWorkspaceNotOpen) {
+		t.Errorf("StartRunConfiguration() error = %v, want ErrWorkspaceNotOpen", err)
+	}
+	if _, err := app.StartTestRun(jide.TestRunExecuteParams{TestFile: "test/runtests.jl"}); !errors.Is(err, ErrWorkspaceNotOpen) {
+		t.Errorf("StartTestRun() error = %v, want ErrWorkspaceNotOpen", err)
+	}
+	if err := app.StopRun("missing"); err == nil || !strings.Contains(err.Error(), "was not found") {
+		t.Errorf("StopRun() error = %v, want unknown-run error", err)
+	}
+	if err := app.StopTestRun("missing"); err == nil || !strings.Contains(err.Error(), "was not found") {
+		t.Errorf("StopTestRun() error = %v, want unknown-test-run error", err)
+	}
+}
+
 func TestFileOperationsStayInsideWorkspace(t *testing.T) {
 	root := t.TempDir()
 	outside := filepath.Join(t.TempDir(), "outside.jl")

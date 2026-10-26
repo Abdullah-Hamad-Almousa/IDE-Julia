@@ -3,11 +3,14 @@ go 1.24
 use (
 	./cmd/jide
 	./cmd/jided
+	./internal/dap
 	./internal/index
 	./internal/jlproc
 	./internal/lsp
 	./internal/pkg
+	./internal/runconf
 	./internal/syntax
+	./internal/testrun
 	./internal/vfs
 	./internal/workspace
 	./proto/jide

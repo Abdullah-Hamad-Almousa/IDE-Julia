@@ -1,5 +1,7 @@
 package jide
 
+import "encoding/json"
+
 // This file holds the parameter and result objects of the protocol methods
 // that are stable enough to be part of the v1 surface. Every object is
 // JSON-marshalable and carries explicit json tags, so the wire format is
@@ -885,6 +887,370 @@ type ConsoleSessionsResult struct {
 type ConsoleHistoryResult struct {
 	SessionID string   `json:"sessionId"`
 	History   []string `json:"history"`
+}
+
+// DAPStartParams selects DebugAdapter.jl from a Julia project or an explicit
+// adapter executable. ProjectPath takes precedence when supplied.
+type DAPStartParams struct {
+	ProjectPath      string   `json:"projectPath,omitempty"`
+	WorkingDirectory string   `json:"workingDirectory,omitempty"`
+	Executable       string   `json:"executable,omitempty"`
+	Arguments        []string `json:"arguments,omitempty"`
+	Directory        string   `json:"directory,omitempty"`
+}
+
+// DAPStartResult returns capabilities negotiated during initialize.
+type DAPStartResult struct {
+	Capabilities DAPCapabilities `json:"capabilities"`
+}
+
+// DAPCapabilities lists capabilities advertised by the adapter.
+type DAPCapabilities struct {
+	SupportsConfigurationDoneRequest  bool                           `json:"supportsConfigurationDoneRequest,omitempty"`
+	SupportsFunctionBreakpoints       bool                           `json:"supportsFunctionBreakpoints,omitempty"`
+	SupportsConditionalBreakpoints    bool                           `json:"supportsConditionalBreakpoints,omitempty"`
+	SupportsHitConditionalBreakpoints bool                           `json:"supportsHitConditionalBreakpoints,omitempty"`
+	SupportsEvaluateForHovers         bool                           `json:"supportsEvaluateForHovers,omitempty"`
+	SupportsStepBack                  bool                           `json:"supportsStepBack,omitempty"`
+	SupportsSetVariable               bool                           `json:"supportsSetVariable,omitempty"`
+	SupportsRestartFrame              bool                           `json:"supportsRestartFrame,omitempty"`
+	SupportsStepInTargetsRequest      bool                           `json:"supportsStepInTargetsRequest,omitempty"`
+	SupportsExceptionInfoRequest      bool                           `json:"supportsExceptionInfoRequest,omitempty"`
+	SupportsTerminateRequest          bool                           `json:"supportsTerminateRequest,omitempty"`
+	SupportsRestartRequest            bool                           `json:"supportsRestartRequest,omitempty"`
+	SupportsLogPoints                 bool                           `json:"supportsLogPoints,omitempty"`
+	SupportsDataBreakpoints           bool                           `json:"supportsDataBreakpoints,omitempty"`
+	SupportsVariablePaging            bool                           `json:"supportsVariablePaging,omitempty"`
+	SupportsVariableType              bool                           `json:"supportsVariableType,omitempty"`
+	ExceptionBreakpointFilters        []DAPExceptionBreakpointFilter `json:"exceptionBreakpointFilters,omitempty"`
+}
+
+// DAPExceptionBreakpointFilter describes a named adapter exception filter.
+type DAPExceptionBreakpointFilter struct {
+	Filter      string `json:"filter"`
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
+	Default     bool   `json:"default,omitempty"`
+}
+
+// DAPArgumentsParams carries adapter-specific launch or attach arguments.
+type DAPArgumentsParams struct {
+	Arguments map[string]any `json:"arguments"`
+}
+
+// DAPEmptyResult represents a successful DAP operation with an empty body.
+type DAPEmptyResult struct{}
+
+// DAPSource identifies a source file in the debuggee.
+type DAPSource struct {
+	Name            string `json:"name,omitempty"`
+	Path            string `json:"path,omitempty"`
+	SourceReference int    `json:"sourceReference,omitempty"`
+}
+
+// DAPSourceBreakpoint is a requested source breakpoint.
+type DAPSourceBreakpoint struct {
+	Line         int    `json:"line"`
+	Column       int    `json:"column,omitempty"`
+	Condition    string `json:"condition,omitempty"`
+	HitCondition string `json:"hitCondition,omitempty"`
+	LogMessage   string `json:"logMessage,omitempty"`
+}
+
+// DAPFunctionBreakpoint is a requested function breakpoint.
+type DAPFunctionBreakpoint struct {
+	Name         string `json:"name"`
+	Condition    string `json:"condition,omitempty"`
+	HitCondition string `json:"hitCondition,omitempty"`
+}
+
+// DAPBreakpoint is a breakpoint returned by the adapter.
+type DAPBreakpoint struct {
+	ID       int        `json:"id,omitempty"`
+	Verified bool       `json:"verified"`
+	Message  string     `json:"message,omitempty"`
+	Source   *DAPSource `json:"source,omitempty"`
+	Line     int        `json:"line,omitempty"`
+	Column   int        `json:"column,omitempty"`
+}
+
+// DAPBreakpointsResult returns adapter-verified breakpoints.
+type DAPBreakpointsResult struct {
+	Breakpoints []DAPBreakpoint `json:"breakpoints"`
+}
+
+// DAPSetBreakpointsParams replaces the source breakpoints for a file.
+type DAPSetBreakpointsParams struct {
+	Source      DAPSource             `json:"source"`
+	Breakpoints []DAPSourceBreakpoint `json:"breakpoints"`
+}
+
+// DAPFunctionBreakpointsParams replaces function breakpoints.
+type DAPFunctionBreakpointsParams struct {
+	Breakpoints []DAPFunctionBreakpoint `json:"breakpoints"`
+}
+
+// DAPExceptionBreakpointsParams selects adapter-advertised exception filters.
+type DAPExceptionBreakpointsParams struct {
+	Filters []string `json:"filters"`
+}
+
+// DAPThreadParams identifies a thread for stepping or continuation.
+type DAPThreadParams struct {
+	ThreadID int `json:"threadId"`
+	TargetID int `json:"targetId,omitempty"`
+}
+
+// DAPFrameParams identifies a frame for scope inspection.
+type DAPFrameParams struct {
+	FrameID int `json:"frameId"`
+}
+
+// DAPVariablesParams identifies the variable container to expand.
+type DAPVariablesParams struct {
+	VariablesReference int `json:"variablesReference"`
+	Start              int `json:"start,omitempty"`
+	Count              int `json:"count,omitempty"`
+}
+
+// DAPSetVariableParams assigns an expression to a named scope variable.
+type DAPSetVariableParams struct {
+	VariablesReference int    `json:"variablesReference"`
+	Name               string `json:"name"`
+	Value              string `json:"value"`
+}
+
+// DAPSetVariableResult describes the assigned value returned by the adapter.
+type DAPSetVariableResult struct {
+	Value              string `json:"value"`
+	Type               string `json:"type,omitempty"`
+	VariablesReference int    `json:"variablesReference"`
+	NamedVariables     int    `json:"namedVariables,omitempty"`
+	IndexedVariables   int    `json:"indexedVariables,omitempty"`
+}
+
+// DAPEvaluateParams requests expression evaluation.
+type DAPEvaluateParams struct {
+	Expression string `json:"expression"`
+	FrameID    int    `json:"frameId,omitempty"`
+	Context    string `json:"context,omitempty"`
+}
+
+// DAPDisconnectParams closes a debug session.
+type DAPDisconnectParams struct {
+	TerminateDebuggee bool `json:"terminateDebuggee,omitempty"`
+}
+
+// DAPEventParams forwards an adapter event.
+type DAPEventParams struct {
+	Event string          `json:"event"`
+	Body  json.RawMessage `json:"body,omitempty"`
+}
+
+// DAPStackTraceParams identifies a thread's stack page.
+type DAPStackTraceParams struct {
+	ThreadID   int `json:"threadId"`
+	StartFrame int `json:"startFrame,omitempty"`
+	Levels     int `json:"levels,omitempty"`
+}
+
+// DAPThreadsParams is an empty request object for listing threads.
+type DAPThreadsParams struct{}
+
+// DAPThread describes one debuggee thread.
+type DAPThread struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+}
+
+// DAPThreadsResult lists the current debuggee threads.
+type DAPThreadsResult struct {
+	Threads []DAPThread `json:"threads"`
+}
+
+// DAPScope groups variables visible to a frame.
+type DAPScope struct {
+	Name               string `json:"name"`
+	PresentationHint   string `json:"presentationHint,omitempty"`
+	VariablesReference int    `json:"variablesReference"`
+	NamedVariables     int    `json:"namedVariables,omitempty"`
+	IndexedVariables   int    `json:"indexedVariables,omitempty"`
+	Expensive          bool   `json:"expensive"`
+}
+
+// DAPScopesResult lists scopes available on a stack frame.
+type DAPScopesResult struct {
+	Scopes []DAPScope `json:"scopes"`
+}
+
+// DAPVariable describes a debuggee variable.
+type DAPVariable struct {
+	Name               string `json:"name"`
+	Value              string `json:"value"`
+	Type               string `json:"type,omitempty"`
+	EvaluateName       string `json:"evaluateName,omitempty"`
+	VariablesReference int    `json:"variablesReference"`
+	NamedVariables     int    `json:"namedVariables,omitempty"`
+	IndexedVariables   int    `json:"indexedVariables,omitempty"`
+}
+
+// DAPVariablesResult lists the expanded variables.
+type DAPVariablesResult struct {
+	Variables []DAPVariable `json:"variables"`
+}
+
+// DAPEvaluateResult is the formatted result of evaluating an expression.
+type DAPEvaluateResult struct {
+	Result             string `json:"result"`
+	Type               string `json:"type,omitempty"`
+	VariablesReference int    `json:"variablesReference"`
+}
+
+// DAPContinueResult reports whether all threads resumed.
+type DAPContinueResult struct {
+	AllThreadsContinued bool `json:"allThreadsContinued,omitempty"`
+}
+
+// DAPExceptionInfoResult describes the exception associated with a stop.
+type DAPExceptionInfoResult struct {
+	ExceptionID string               `json:"exceptionId"`
+	Description string               `json:"description,omitempty"`
+	BreakMode   string               `json:"breakMode"`
+	Details     *DAPExceptionDetails `json:"details,omitempty"`
+}
+
+// DAPExceptionDetails contains optional structured exception information.
+type DAPExceptionDetails struct {
+	Message      string `json:"message,omitempty"`
+	TypeName     string `json:"typeName,omitempty"`
+	FullTypeName string `json:"fullTypeName,omitempty"`
+	EvaluateName string `json:"evaluateName,omitempty"`
+	StackTrace   string `json:"stackTrace,omitempty"`
+}
+
+// DAPStackFrame is a frame returned by the adapter.
+type DAPStackFrame struct {
+	ID     int        `json:"id"`
+	Name   string     `json:"name"`
+	Source *DAPSource `json:"source,omitempty"`
+	Line   int        `json:"line"`
+	Column int        `json:"column"`
+}
+
+// DAPStackTraceResult is the adapter stack response.
+type DAPStackTraceResult struct {
+	StackFrames []DAPStackFrame `json:"stackFrames"`
+	TotalFrames int             `json:"totalFrames,omitempty"`
+}
+
+// DAPStepInTarget identifies a call site available for step-in.
+type DAPStepInTarget struct {
+	ID    int    `json:"id"`
+	Label string `json:"label"`
+}
+
+// DAPStepInTargetsResult lists call sites available for step-in.
+type DAPStepInTargetsResult struct {
+	Targets []DAPStepInTarget `json:"targets"`
+}
+
+// DAPBreakpointEventParams publishes the current breakpoint set.
+type DAPBreakpointEventParams struct {
+	Reason     string        `json:"reason"`
+	Breakpoint DAPBreakpoint `json:"breakpoint"`
+}
+
+// RunConfiguration describes a built-in or user-defined Julia run target.
+type RunConfiguration struct {
+	ID               string                     `json:"id,omitempty"`
+	Name             string                     `json:"name"`
+	Type             string                     `json:"type"`
+	ProjectPath      string                     `json:"projectPath,omitempty"`
+	WorkingDirectory string                     `json:"workingDirectory,omitempty"`
+	Program          string                     `json:"program,omitempty"`
+	Module           string                     `json:"module,omitempty"`
+	Arguments        []string                   `json:"arguments,omitempty"`
+	Environment      map[string]string          `json:"environment,omitempty"`
+	Properties       map[string]json.RawMessage `json:"properties,omitempty"`
+}
+
+// RunExecuteParams starts one run configuration.
+type RunExecuteParams struct {
+	Configuration RunConfiguration `json:"configuration"`
+}
+
+// RunExecuteResult identifies the launched process.
+type RunExecuteResult struct {
+	RunID string `json:"runId"`
+	PID   int    `json:"pid"`
+}
+
+// RunTerminateParams identifies the process to stop.
+type RunTerminateParams struct {
+	RunID string `json:"runId"`
+}
+
+// RunTerminateResult confirms a termination request.
+type RunTerminateResult struct {
+	Terminated bool `json:"terminated"`
+}
+
+// RunInputParams sends text to an interactive run process.
+type RunInputParams struct {
+	RunID string `json:"runId"`
+	Input string `json:"input"`
+}
+
+// RunInputResult confirms that input was written to stdin.
+type RunInputResult struct {
+	Written bool `json:"written"`
+}
+
+// RunOutputParams publishes one stdout or stderr chunk.
+type RunOutputParams struct {
+	RunID  string `json:"runId"`
+	Stream string `json:"stream"`
+	Data   string `json:"data"`
+}
+
+// RunExitedParams publishes the final process status.
+type RunExitedParams struct {
+	RunID    string `json:"runId"`
+	ExitCode int    `json:"exitCode"`
+	Error    string `json:"error,omitempty"`
+}
+
+// TestRunExecuteParams starts a Julia test file in a project environment.
+type TestRunExecuteParams struct {
+	ProjectPath      string   `json:"projectPath,omitempty"`
+	WorkingDirectory string   `json:"workingDirectory,omitempty"`
+	TestFile         string   `json:"testFile"`
+	Arguments        []string `json:"arguments,omitempty"`
+}
+
+// TestRunExecuteResult identifies the asynchronous Test Explorer run.
+type TestRunExecuteResult struct {
+	RunID string `json:"runId"`
+}
+
+// TestRunEventParams streams test-set, assertion, output, and run completion
+// data. SourcePath and Line are populated for assertion navigation.
+type TestRunEventParams struct {
+	RunID      string `json:"runId"`
+	Kind       string `json:"kind"`
+	Name       string `json:"name,omitempty"`
+	Status     string `json:"status,omitempty"`
+	Message    string `json:"message,omitempty"`
+	SourcePath string `json:"sourcePath,omitempty"`
+	Line       int    `json:"line,omitempty"`
+	Passed     int    `json:"passed,omitempty"`
+	Failed     int    `json:"failed,omitempty"`
+	Errors     int    `json:"errors,omitempty"`
+	Skipped    int    `json:"skipped,omitempty"`
+	Broken     int    `json:"broken,omitempty"`
+	ExitCode   int    `json:"exitCode,omitempty"`
+	Stream     string `json:"stream,omitempty"`
+	Data       string `json:"data,omitempty"`
 }
 
 // PkgEnvironmentsParams are the parameters of MethodPkgEnvironments.
